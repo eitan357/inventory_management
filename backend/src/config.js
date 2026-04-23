@@ -21,7 +21,6 @@ module.exports = {
     STORAGE: 'storage',
     FAULTY:  'faulty',
   },
-  // IDs של actions עם badge=storage / badge=faulty — למלא אחרי ייבוא נתונים
-  STORAGE_BADGE_IDS: [],
-  FAULTY_BADGE_IDS:  [],
+  STORAGE_BADGE_IDS: ['1f72e881-ea25-4707-91ce-0d4c1f48c30f'], // הכנסה לאפסנה
+  FAULTY_BADGE_IDS:  ['c2546203-82e8-446f-8f5a-d6fd14b9c1a5'], // זיכוי - תקול
 };
