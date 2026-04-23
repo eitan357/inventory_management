@@ -1,0 +1,317 @@
+<script>
+  // צבע רקע של סרגל הניווט העליון — לשינוי צבע, ערוך רק כאן.
+  const NAVBAR_BG_COLOR = "rgba(253, 5, 2, 0.8)";
+  //  "rgba(253, 5, 2, 0.8)", red
+  // "rgba(13, 110, 253, 0.8)", blue
+
+  //------------------------ ניהול מצב וטעינה -------------------------------
+
+  let appData = { teams: [], locations: [], catalog: [] };
+  let _dataReadyCallbacks = [];
+
+  // נתוני דוחות שנטענים ברקע מיד אחרי עליית האפליקציה
+  let _prefetchedInventoryReport = null;
+  let _prefetchedInventoryError = null;
+  let _prefetchedTsReport = null;
+  let _prefetchedTsError = null;
+
+  function _prefetchReportData(onDone) {
+    google.script.run
+      .withSuccessHandler((result) => {
+        if (!result || result._error) {
+          const err = (result && result._error) || "שגיאה בטעינת נתונים";
+          _prefetchedInventoryError = err;
+          _prefetchedTsError = err;
+          _prefetchedInventoryReport = [];
+          _prefetchedTsReport = {};
+        } else {
+          _prefetchedInventoryReport = result.inventory;
+          const ts = result.tsReport;
+          if (ts && ts._error) {
+            _prefetchedTsError = ts._error;
+            _prefetchedTsReport = {};
+          } else {
+            _prefetchedTsReport = ts || {};
+          }
+        }
+        onDone?.();
+      })
+      .withFailureHandler((e) => {
+        _prefetchedInventoryError = e.message;
+        _prefetchedTsError = e.message;
+        onDone?.();
+      })
+      .getPrefetchedReports();
+  }
+
+  function _setRefreshBtn(loading) {
+    const btn = document.getElementById("refresh-btn");
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.classList.toggle("spinning", loading);
+  }
+
+  /**
+   * _whenDataReady — מריץ fn מיד אם הנתונים כבר נטענו, אחרת מעגן אותה לטעינה.
+   * משמש ב-initXPage כדי להסתיר skeleton ולהציג תוכן אמיתי.
+   */
+  function _whenDataReady(fn) {
+    if (appData.teams.length > 0) {
+      fn();
+    } else {
+      _dataReadyCallbacks.push(fn);
+    }
+  }
+
+  /**
+   * ensureSigneeRegistered — אם החותם לא נבחר מהרשימה, שולח לשרת להוספה ומעדכן appData.signees.
+   * @param {HTMLElement} nameInput - שדה שם החותם
+   * @param {HTMLElement} idInput   - שדה המספר האישי
+   */
+  async function ensureSigneeRegistered(nameInput, idInput) {
+    if (nameInput.dataset.selectedId) return; // כבר נבחר מהרשימה
+
+    const name = nameInput.value.trim();
+    const signeePersonalId = idInput.value.trim();
+    if (!name || !signeePersonalId) return;
+
+    const newSignee = await _callServerAsync((r) =>
+      r.addNewSignee({ name, signeeId: signeePersonalId }),
+    );
+
+    if (newSignee && newSignee.id) {
+      appData.signees.push(newSignee);
+      nameInput.dataset.selectedId = newSignee.id;
+    }
+  }
+
+  function appLookup(listKey, id) {
+    if (!id) return null;
+    return (appData[listKey] || []).find((r) => r.id === id) || null;
+  }
+
+  function appLookupName(listKey, id) {
+    return appLookup(listKey, id)?.name || id || "";
+  }
+
+  function getProductDisplayName(product) {
+    if (!product) return "";
+    return product.nickname && product.nickname.trim()
+      ? `${product.nickname} - ${product.name}`
+      : product.name || "";
+  }
+
+  // -------- ניווט בין עמודים (SPA עם שמירת DOM) --------
+
+  /**
+   * showPage — מנווט לעמוד המבוקש.
+   * בביקור ראשון: מזריק את ה-HTML ומאתחל את העמוד.
+   * בביקור חוזר: פשוט מציג את ה-DOM הקיים (שומר נתונים שהמשתמש הזין).
+   */
+  function _pageTemplates() {
+    return {
+      "outbound-page": getOutboundHTML,
+      "status-page": getStatusHTML,
+      "validator-page": getValidatorHTML,
+      "inventory-page": getInventoryHTML,
+    };
+  }
+  function _pageInits() {
+    return {
+      "outbound-page": initOutboundPage,
+      "status-page": initStatusPage,
+      "validator-page": initValidatorPage,
+      "inventory-page": initInventoryPage,
+    };
+  }
+
+  function showPage(pageId, pushState = true) {
+    closeAllLists();
+    const container = document.getElementById("page-container");
+    const homePage = document.getElementById("home-page");
+
+    // הסתרת כל העמודים
+    container
+      .querySelectorAll(".page")
+      .forEach((p) => p.classList.remove("active"));
+
+    if (pageId === "home-page") {
+      homePage.classList.add("active");
+    } else {
+      // בדיקה אם העמוד כבר קיים בDOM (ביקור חוזר)
+      const targetPage = document.getElementById(pageId);
+      if (!targetPage) {
+        // ביקור ראשון: הזרקה ואתחול (התבנית כבר מכילה class="page active")
+        container.insertAdjacentHTML("beforeend", _pageTemplates()[pageId]());
+        _pageInits()[pageId]();
+      } else {
+        // ביקור חוזר: הצג מחדש את העמוד עם הנתונים שכבר הוזנו
+        targetPage.classList.add("active");
+      }
+    }
+
+    window.scrollTo({ top: 0, behavior: "instant" });
+
+    if (pushState) {
+      google.script.history.push({ page: pageId }, {}, pageId);
+    }
+  }
+
+  // replace מנקה את ה-hash של הסשן הקודם (למשל exec#validator-page) — בלעדיו,
+  // כשמגיעים לתחתית ה-history מוצג לשנייה העמוד האחרון מהסשן הישן.
+  // 9 push נוספים יוצרים "רצפה" של 10 כניסות — נדרשות 10 לחיצות חזרה מדף הבית ליציאה.
+  google.script.history.replace({ page: "home-page" }, {}, "home-page");
+  for (let _i = 0; _i < 9; _i++) {
+    google.script.history.push({ page: "home-page" }, {}, "home-page");
+  }
+
+  // האזנה לכפתור חזור של הדפדפן (דרך GAS history)
+  google.script.history.setChangeHandler(function (e) {
+    const pageId = (e.location && e.location.hash) || "home-page";
+    showPage(pageId, false);
+  });
+
+  // -------- ריענון נתונים --------
+
+  function refreshAppData() {
+    const activeEl = document.querySelector("#page-container .page.active");
+    const activePageId = activeEl?.id || "home-page";
+
+    appData = { teams: [], locations: [], catalog: [] };
+    _prefetchedInventoryReport = null;
+    _prefetchedInventoryError = null;
+    _prefetchedTsReport = null;
+    _prefetchedTsError = null;
+    _dataReadyCallbacks = [];
+
+    _setRefreshBtn(true);
+
+    // מסיר את כל העמודים — יאותחלו מחדש עם הנתונים החדשים בביקור הבא
+    const container = document.getElementById("page-container");
+    Object.keys(_pageTemplates()).forEach((pageId) =>
+      document.getElementById(pageId)?.remove(),
+    );
+
+    // מזריק מחדש רק את העמוד הפעיל עם skeleton
+    if (activePageId !== "home-page") {
+      container.insertAdjacentHTML(
+        "beforeend",
+        _pageTemplates()[activePageId](),
+      );
+      _pageInits()[activePageId]();
+    }
+
+    google.script.run
+      .withSuccessHandler((jsonResponse) => {
+        const data = JSON.parse(jsonResponse);
+        if (!data.authorized) {
+          document.body.innerHTML =
+            '<div class="container mt-5 text-center alert alert-danger">גישה חסומה</div>';
+          return;
+        }
+        appData = data;
+        document.getElementById("user-info").innerText = data.user.name;
+        const greetingEl = document.querySelector(".user-greeting");
+        if (greetingEl) greetingEl.innerText = data.user.name;
+
+        _dataReadyCallbacks.forEach((fn) => fn());
+        _dataReadyCallbacks = [];
+        _prefetchReportData(() => _setRefreshBtn(false));
+      })
+      .withFailureHandler((e) => {
+        _setRefreshBtn(false);
+        alert("שגיאה ברענון: " + e.message);
+      })
+      .getStartupData();
+  }
+
+  // -------- אתחול האפליקציה --------
+
+  function initApp() {
+    // 1. צבע נאב-בר מה-config
+    document.getElementById("main-navbar").style.backgroundColor =
+      NAVBAR_BG_COLOR;
+
+    // 2. נועל את כפתור הריענון עד שכל הנתונים נטענו
+    _setRefreshBtn(true);
+
+    // 3. טעינת נתונים מהשרת
+    google.script.run
+      .withSuccessHandler((jsonResponse) => {
+        const data = JSON.parse(jsonResponse);
+        if (!data.authorized) {
+          document.body.innerHTML =
+            '<div class="container mt-5 text-center alert alert-danger">גישה חסומה</div>';
+          return;
+        }
+        appData = data;
+        document.getElementById("user-info").innerText = data.user.name;
+        const greetingEl = document.querySelector(".user-greeting");
+        if (greetingEl) greetingEl.innerText = data.user.name;
+
+        _dataReadyCallbacks.forEach((fn) => fn());
+        _dataReadyCallbacks = [];
+
+        _prefetchReportData(() => _setRefreshBtn(false));
+      })
+      .withFailureHandler(() => _setRefreshBtn(false))
+      .getStartupData();
+  }
+
+  // -------- צוותים חיצוניים — מסוננים מדוחות אלא אם נבחרו ספציפית --------
+  /**
+   * isExcludedTeamForReports — משמש בדוח מלאי ובדוח צ' להסתרת צוותים חיצוניים.
+   * @param {string} teamId
+   * @returns {boolean}
+   */
+  function isExcludedTeamForReports(teamId) {
+    return appData.teams.some(
+      (t) => t.id === teamId && t.role === appData.config.TEAM_ROLE_EXTERNAL,
+    );
+  }
+
+  function _escapeAttr(str) {
+    return str.replace(/"/g, "&quot;");
+  }
+
+  // מחליף תצוגת צ'/כמות בשורת מוצר — isTs=true מציג צ', false מציג כמות
+  function toggleSnQtyContainers(row, isTs) {
+    const snContainer = row.querySelector(".sn-container, .stat-sn-container");
+    const qtyContainer = row.querySelector(
+      ".qty-container, .stat-qty-container",
+    );
+    snContainer?.classList.toggle("hidden-field", !isTs);
+    qtyContainer?.classList.toggle("hidden-field", isTs);
+  }
+
+  // עוטף קריאת google.script.run ב-Promise
+  function _callServerAsync(callFn) {
+    return new Promise((resolve, reject) =>
+      callFn(
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject),
+      ),
+    );
+  }
+
+  // מחזיר כפתור מודאל נקי מאיבנטים קודמים (clone + replace)
+  function _resetModalButton(id) {
+    const old = document.getElementById(id);
+    const fresh = old.cloneNode(true);
+    old.parentNode.replaceChild(fresh, old);
+    return fresh;
+  }
+
+  // polls a prefetched data slot every 100ms; calls onData(data) or onError(msg) once ready
+  function _waitForPrefetch({ getData, getError, onData, onError }) {
+    const check = () => {
+      const data = getData();
+      const err = getError();
+      if (data !== null) return onData(data);
+      if (err) return onError(err);
+      setTimeout(check, 100);
+    };
+    check();
+  }
+</script>

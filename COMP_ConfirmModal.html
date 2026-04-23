@@ -1,0 +1,65 @@
+<!-- מודאל אישור/שאלה (Confirm) -->
+<div id="confirm-modal" class="custom-modal-overlay">
+  <div class="custom-modal">
+    <h4 id="confirm-title">שאלה</h4>
+    <p id="confirm-message"></p>
+    <div id="confirm-extra-content"></div>
+    <!-- מקום להזנת כמות -->
+    <div class="d-flex justify-content-around mt-4">
+      <button class="btn btn-success" id="confirm-yes-btn">כן</button>
+      <button class="btn btn-danger" id="confirm-no-btn">לא</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * showCustomConfirm — מציג מודאל אישור/שאלה ומחזיר Promise<boolean>
+   *
+   * @param {string} title   - כותרת המודאל
+   * @param {string} message - הודעת השאלה
+   * @returns {Promise<boolean>} true אם המשתמש לחץ "כן", false אם "לא"
+   */
+  async function showCustomConfirm(title, message) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById("confirm-modal");
+      document.getElementById("confirm-title").innerText = title;
+      document.getElementById("confirm-message").innerText = message;
+
+      // וידוא שהמודאל מעל כל מודאל אחר שאולי פתוח
+      modal.style.setProperty("z-index", "30000", "important");
+      openModal("confirm-modal");
+
+      const yesBtn = document.getElementById("confirm-yes-btn");
+      const noBtn = document.getElementById("confirm-no-btn");
+
+      // הסרת איבנטים קודמים וחיבור חדשים
+      const newYes = _resetModalButton("confirm-yes-btn");
+      const newNo  = _resetModalButton("confirm-no-btn");
+
+      newYes.onclick = () => {
+        modal.style.removeProperty("z-index");
+        closeModal("confirm-modal");
+        resolve(true);
+      };
+      newNo.onclick = () => {
+        modal.style.removeProperty("z-index");
+        closeModal("confirm-modal");
+        resolve(false);
+      };
+    });
+  }
+
+  /**
+   * confirmAndExecuteReset — מציג חלון אישור ומריץ callback אם המשתמש אישר
+   */
+  async function confirmAndExecuteReset(callback) {
+    const res = await showCustomConfirm(
+      "ניקוי טופס",
+      "האם אתה בטוח שברצונך למחוק את כל הנתונים שהוזנו?"
+    );
+    if (res && typeof callback === 'function') {
+      callback();
+    }
+  }
+</script>

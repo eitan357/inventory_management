@@ -1,0 +1,572 @@
+<style>
+  html,
+  body {
+    /* הסרת הגובה הקשיח שמונע Pull-to-refresh */
+    height: auto;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    /* הגדרת גלילה טבעית */
+    overflow-x: hidden;
+    overflow-y: visible;
+    /* מאפשר התנהגות רענון משיכה טבעית של הדפדפן */
+    overscroll-behavior-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+/* תיקון כפתורי סינון בדוח מלאי — RTL עם Bootstrap LTR */
+  #inv-filter-tabs .btn {
+    border-radius: 0 !important;
+  }
+  #inv-filter-tabs .btn:first-child {
+    border-top-right-radius: 0.375rem !important;
+    border-bottom-right-radius: 0.375rem !important;
+  }
+  #inv-filter-tabs .btn:last-child {
+    border-top-left-radius: 0.375rem !important;
+    border-bottom-left-radius: 0.375rem !important;
+  }
+
+.page {
+    display: none;
+    padding: 20px;
+  }
+  .active {
+    display: block;
+  }
+  .nav-card {
+    cursor: pointer;
+    transition: 0.3s;
+  }
+  .nav-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  }
+
+  /* שיפור ריווח בין שורות מוצרים */
+  .item-row {
+    border: none;
+    border-radius: 12px;
+    margin-bottom: 20px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  }
+
+  .x-small {
+    font-size: 12px;
+    font-weight: bold;
+    color: #666;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    position: relative;
+    height: auto;
+    min-height: 100%;
+  }
+
+  /* ריווח תחתון לעטיפה הכללית של השדה */
+  .search-field-container {
+    margin-bottom: 15px;
+  }
+
+  /* ריווח תחתון לעטיפה כדי שלא יהיה צפוף */
+  .searchable-input-wrapper {
+    position: relative;
+    width: 100%;
+  }
+
+  .searchable-input-wrapper .form-control {
+    width: 100%;
+    height: 45px !important;
+    padding-left: 40px !important; /* רווח ל-X מצד שמאל */
+    padding-right: 12px !important;
+    text-align: right;
+    border-radius: 8px;
+  }
+
+  .clear-input-btn {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%); /* מרכוז מושלם */
+    height: 30px;
+    width: 30px;
+    display: none;
+    z-index: 10;
+    cursor: pointer;
+    color: #999 !important;
+    font-size: 22px;
+    text-align: center;
+    line-height: 28px;
+    background: transparent;
+    border: none;
+    transition: color 0.2s;
+  }
+  .clear-input-btn:hover {
+    color: #333 !important;
+  }
+
+  .btn-remove-row {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 20;
+  }
+
+  .search-results {
+    /* position + top/right/width מוגדרים ב-JS (_openDropdown) */
+    position: absolute;
+    z-index: 9999;
+    max-height: 200px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: none; /* חבוי לחלוטין כשאין חיפוש */
+  }
+  .search-item {
+    padding: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    text-align: right;
+  }
+  .search-item:hover {
+    background-color: #f1f1f1;
+  }
+
+  .hidden-field {
+    display: none !important;
+  }
+
+  /* מודאל */
+  .custom-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    align-items: center;
+    justify-content: center;
+    z-index: 20000;
+    /* הסתרה מלאה — display:none מסיר את המודאל לחלוטין מה-stacking context */
+    display: none;
+  }
+
+  .custom-modal-overlay.modal-visible {
+    display: flex;
+  }
+
+  /* המודאל עצמו - התיבה הלבנה */
+  .custom-modal {
+    position: relative;
+    margin: auto;
+
+    /* פריסה ותצוגה */
+    display: flex;
+    flex-direction: column;
+    width: 95%;
+    max-width: 450px;
+    max-height: 90vh;
+    overflow-y: auto;
+
+    /* עיצוב ויזואלי */
+    background-color: #ffffff;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+
+    /* אנימציית כניסה — opacity בלבד, ללא transform שגורם לאי-התאמת hit-box בגלילה */
+    opacity: 0;
+    transition: opacity 0.22s ease;
+  }
+
+  .custom-modal-overlay.modal-visible .custom-modal {
+    opacity: 1;
+  }
+
+  /* התאמה למובייל - טקסט גדול יותר בכפתורים */
+  .custom-modal .btn {
+    padding: 12px;
+    font-weight: bold;
+  }
+
+  html.modal-open,
+  .modal-open {
+    overflow: hidden !important;
+  }
+
+  /* הודעות שגיאה */
+  .field-error-msg {
+    color: #dc3545;
+    font-size: 11px;
+    margin-top: 2px;
+    font-weight: 500;
+    display: none;
+  }
+  .is-invalid-field {
+    border-color: #dc3545 !important;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.1) !important;
+  }
+
+  /* עיצוב כפתור "הוסף מוצר" שלא יהיה ארוך מדי */
+  .add-item-container {
+    text-align: left;
+    margin-bottom: 25px;
+  }
+  .btn-add-item {
+    border-radius: 20px;
+    padding: 6px 20px;
+    font-weight: 600;
+  }
+  #loading-overlay {
+    backdrop-filter: blur(2px);
+    transition: none !important; /* הופעה מיידית ללא אנימציה */
+  }
+  #loading-overlay .custom-modal {
+    margin: 0 auto;
+    text-align: center;
+    transform: none !important; /* ללא אנימציית הזזה */
+    transition: none !important;
+  }
+  .spinner-border {
+    border-width: 0.25em;
+  }
+
+  /* כפתורי פעולה (חזרה / ניקוי / ריענון) */
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: 0.5px solid rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    user-select: none;
+    font-family: inherit;
+    flex-shrink: 0;
+  }
+  .action-btn:hover { background: #f5f5f5; border-color: rgba(0, 0, 0, 0.4); }
+  .action-btn:active { transform: scale(0.97); }
+  .action-btn svg { width: 15px; height: 15px; flex-shrink: 0; color: #1a1a1a; display: block; }
+
+  /* ניקוי — אדום */
+  .action-btn.clear-btn { border-color: #ef4444; }
+  .action-btn.clear-btn svg { color: #ef4444; }
+
+  @keyframes shake {
+    0%,100% { transform: rotate(0deg); }
+    20%      { transform: rotate(-12deg); }
+    40%      { transform: rotate(12deg); }
+    60%      { transform: rotate(-8deg); }
+    80%      { transform: rotate(8deg); }
+  }
+  .action-btn.clearing svg { animation: shake 0.45s ease; transform-origin: center; }
+
+  /* חזרה — הבהוב רקע כהה */
+  .action-btn.going { background: #d0d0d0; border-color: #aaaaaa; }
+
+  /* וריאנט לרקע כהה (navbar) */
+  .action-btn-light { border-color: rgba(255,255,255,0.4); }
+  .action-btn-light svg { color: rgba(255,255,255,0.85); }
+  .action-btn-light:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.6); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .action-btn-light.spinning svg { animation: spin 0.8s linear infinite; }
+  .action-btn-light.spinning { background: rgba(255,255,255,0.15); }
+
+  /* מיכל הצלליות שיופיע בזמן טעינה */
+  #skeleton-container {
+    display: none; /* יופעל דרך ה-JS */
+  }
+
+  .skeleton-pill {
+    height: 35px;
+    background: #eeeeee;
+    border-radius: 50px; /* צורת קפסולה */
+    margin-bottom: 15px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* שורה של קפסולות קטנות */
+  .skeleton-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .skeleton-pill.small {
+    width: 80px;
+    height: 25px;
+  }
+  .skeleton-pill.med {
+    width: 150px;
+  }
+  .skeleton-pill.large {
+    width: 100%;
+  }
+
+  /* אפקט הברק (Shimmer) */
+  .skeleton-pill::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.5) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* עיצוב כרטיסים מודרני לעמוד הבית */
+  .nav-card-modern {
+    border-radius: 20px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    background: #ffffff;
+    border-right: 5px solid transparent !important;
+  }
+
+  .nav-card-modern:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08) !important;
+    border-right: 5px solid #dc3545 !important;
+  }
+
+  .icon-box {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 15px;
+  }
+
+  .bg-success-light {
+    background-color: rgba(40, 167, 69, 0.1);
+  }
+  .bg-primary-light {
+    background-color: rgba(13, 110, 253, 0.1);
+  }
+
+  .arrow-icon {
+    color: #ccc;
+    font-weight: bold;
+    font-size: 1.2rem;
+  }
+
+  /* --- עיצוב עמוד הבית המודרני --- */
+  .modern-action-card {
+    display: flex;
+    flex-direction: row-reverse; /* כדי שהאייקון יהיה מימין והחץ משמאל ב-RTL */
+    align-items: center;
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 20px;
+    margin-bottom: 5px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    border: 1px solid #f0f0f0;
+    text-decoration: none !important;
+  }
+
+  .modern-action-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-icon-container {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    flex-shrink: 0;
+  }
+
+  .success-variant .card-icon-container {
+    background: #e8f5e9;
+  }
+  .primary-variant .card-icon-container {
+    background: #e3f2fd;
+  }
+
+  .main-emoji {
+    font-size: 24px;
+  }
+
+  .card-text-content {
+    flex-grow: 1;
+    padding: 0 20px;
+    text-align: right;
+    direction: rtl;
+  }
+
+  .card-text-content h4 {
+    margin: 0;
+    font-size: 18px;
+    color: #2d3436;
+  }
+
+  .card-text-content p {
+    font-size: 13px;
+    color: #636e72;
+  }
+
+  .card-arrow-container {
+    color: #dfe6e9;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  /* אפקט צבע ב-Hover */
+  .success-variant:hover {
+    border-right: 5px solid #28a745;
+  }
+  .primary-variant:hover {
+    border-right: 5px solid #0d6efd;
+  }
+
+  /* הפיכת החץ לשמאל ב-RTL */
+  .arrow-svg svg {
+    transform: scaleX(-1);
+  }
+
+  .form-submit-container {
+    margin-top: 2rem;
+    margin-bottom: 3rem;
+    text-align: center;
+  }
+
+  /* כפתור העתקה משותף */
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    height: 36px;
+    background: transparent;
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 400;
+    color: #1a1a1a;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    user-select: none;
+    white-space: nowrap;
+    font-family: inherit;
+    direction: rtl;
+  }
+  .copy-btn:hover {
+    background: #f5f5f5;
+    border-color: rgba(0,0,0,0.35);
+  }
+  .copy-btn:active { transform: scale(0.97); }
+  .copy-btn.copied {
+    background: #198754;
+    border-color: #198754;
+    color: #ffffff;
+  }
+  .copy-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+  /* וריאנט לרקע כהה */
+  .copy-btn-light {
+    border-color: rgba(255,255,255,0.4);
+    color: #ffffff;
+  }
+  .copy-btn-light:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.6);
+  }
+  /* כפתור טוגל רשימה/טבלה */
+  .val-toggle {
+    display: inline-flex;
+    position: relative;
+    background: #e9ecef;
+    border-radius: 8px;
+    padding: 3px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .val-toggle-slider {
+    position: absolute;
+    top: 3px;
+    height: calc(100% - 6px);
+    border-radius: 5px;
+    background: #0d6efd;
+    transition: right 0.22s cubic-bezier(.4,0,.2,1), width 0.22s cubic-bezier(.4,0,.2,1);
+    pointer-events: none;
+  }
+  .val-toggle-btn {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px;
+    height: 28px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 500;
+    color: #6c757d;
+    cursor: pointer;
+    transition: color 0.2s;
+    font-family: inherit;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .val-toggle-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .val-toggle-btn.active { color: #ffffff; font-weight: 600; }
+
+  /* כרטיס הודעות מתקפל */
+  .val-msg-header {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .val-msg-header:hover { opacity: 0.8; }
+  .val-msg-chevron {
+    transition: transform 0.25s ease;
+    flex-shrink: 0;
+  }
+  .val-msg-chevron.open { transform: rotate(180deg); }
+  .val-msg-body {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.3s ease;
+  }
+  .val-msg-body.open { max-height: 500px; }
+
+  /* הצגת שם המשתמש בדף הבית */
+  .user-greeting {
+    font-weight: 800;
+  }
+</style>

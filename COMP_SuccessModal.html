@@ -1,0 +1,136 @@
+<div id="success-modal" class="custom-modal-overlay">
+  <div class="custom-modal" style="max-width: 450px; width: 95%; height: auto">
+    <div
+      class="modal-body-scroll"
+      style="
+        flex-grow: 1;
+        overflow-y: auto;
+        padding-right: 5px;
+        margin-bottom: 15px;
+      "
+    >
+      <div class="text-success mb-3 text-center">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          fill="currentColor"
+          class="bi bi-check-circle-fill"
+          viewBox="0 0 16 16"
+        >
+          <path
+            d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"
+          />
+        </svg>
+      </div>
+      <h4 id="modal-title" class="text-center" style="font-weight: bold"></h4>
+      <hr />
+
+      <div class="position-relative">
+        <div class="position-absolute d-flex gap-1" style="top: 10px; left: 10px; z-index: 100;">
+          <button id="copy-receipt-btn" onclick="copyReceiptToClipboard()" class="copy-btn" data-tooltip="העתקה" style="background: white;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          </button>
+          <button onclick="shareReceiptContent()" class="copy-btn" data-tooltip="שיתוף" style="background: white;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
+        </div>
+
+        <div
+          id="receipt-content"
+          class="text-end"
+          style="
+            font-size: 14px;
+            background: #f9f9f9;
+            padding: 30px 15px 15px 15px;
+            border-radius: 8px;
+            border: 1px dashed #ccc;
+          "
+        ></div>
+      </div>
+    </div>
+    <button
+      class="btn btn-primary w-100 p-3"
+      onclick="closeModal()"
+      style="font-weight: bold"
+    >
+      סגור וסיים
+    </button>
+  </div>
+</div>
+
+<script>
+  /**
+   * showSuccessModal — מציג את מודאל הקבלה עם נתוני הסיכום
+   *
+   * @param {object} options
+   *   title    {string}   - כותרת המודאל
+   *   metaRows {Array}    - מערך של קבוצות שורות מידע:
+   *                         [[{ label, value }, ...], [...]]
+   *                         כל קבוצה מוצגת בבלוק נפרד עם קו הפרדה
+   *   items    {Array}    - פריטים: [{ productName, isTs, sn, qty }]
+   */
+  function showSuccessModal({ title, metaRows, items }) {
+    const now = new Date();
+    const dateStr =
+      now.toLocaleDateString("he-IL") +
+      " " +
+      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+
+    // טבלת פריטים
+    let itemsHtml = `<table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+      <tr style="border-bottom: 2px solid #ddd; font-weight: bold;">
+        <td style="padding: 5px;">מוצר</td>
+        <td style="padding: 5px; text-align: center;">פרטים</td>
+      </tr>`;
+    items.forEach(function (item) {
+      const detail = item.isTs ? "צ': " + item.sn : "כמות: " + item.qty;
+      itemsHtml += `<tr style="border-bottom: 1px solid #eee;">
+        <td style="padding: 8px 5px;">${item.productName || ""}</td>
+        <td style="padding: 8px 5px; text-align: center;">${detail}</td>
+      </tr>`;
+    });
+    itemsHtml += `</table>`;
+
+    // בלוקי מידע (metaRows)
+    const metaHtml = metaRows
+      .map(function (group) {
+        const lines = group
+          .map(function (row) {
+            return `<strong>${row.label}:</strong> ${row.value}`;
+          })
+          .join("<br>");
+        return `<div style="margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 10px;">${lines}</div>`;
+      })
+      .join("");
+
+    document.getElementById("modal-title").innerText = title;
+    document.getElementById("receipt-content").innerHTML =
+      metaHtml + itemsHtml;
+    openModal("success-modal");
+  }
+
+  function _buildReceiptText() {
+    const receiptDiv = document.getElementById("receipt-content");
+    let text = `📋 *אישור חתימה קשר*\n--------------------------\n`;
+    receiptDiv.innerText.split("\n").filter((l) => l.trim() !== "").forEach((line, i) => {
+      if (i < 4) text += line + "\n";
+    });
+    text += `\n*פירוט ציוד:*\n`;
+    receiptDiv.querySelectorAll("tr").forEach((row, i) => {
+      if (i === 0) return;
+      const cols = row.querySelectorAll("td");
+      if (cols.length >= 2) text += `• ${cols[0].innerText}: ${cols[1].innerText}\n`;
+    });
+    text += `\n--------------------------\n_נשלח ממערכת קשר-אלוג_`;
+    return text;
+  }
+
+  function copyReceiptToClipboard() {
+    UI_doCopy(document.getElementById("copy-receipt-btn"), _buildReceiptText(), "העתקה");
+  }
+
+  function shareReceiptContent() {
+    UI_shareContent(_buildReceiptText(), "אישור חתימה קשר");
+  }
+</script>

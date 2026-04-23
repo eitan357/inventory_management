@@ -1,0 +1,209 @@
+<script>
+  let _invFilterType = "team";
+  let _invAllRows = []; // כל הנתונים שנטענו מהשרת פעם אחת
+  let _invLastRows = []; // השורות המסוננות הנוכחיות (לייצוא)
+
+  // -------- החלפת סוג סינון --------
+  function setInventoryFilter(type, btn) {
+    _invFilterType = type;
+
+    // עדכון כפתורי tabs
+    document.querySelectorAll("#inv-filter-tabs button").forEach((b) => {
+      b.className = b === btn ? "btn btn-primary" : "btn btn-outline-primary";
+    });
+
+    const cfg = {
+      team: { listKey: "teams", label: "שם הצוות", placeholder: "חפש צוות" },
+      location: {
+        listKey: "locations",
+        label: "מיקום",
+        placeholder: "חפש מיקום",
+      },
+      product: {
+        listKey: "catalog",
+        label: "שם המוצר",
+        placeholder: "חפש מוצר",
+      },
+      signee: {
+        listKey: "signees",
+        label: "שם החותם",
+        placeholder: "חפש חותם",
+      },
+    };
+    const { listKey, label, placeholder } = cfg[type];
+
+    document.getElementById("inv-filter-input-anchor").innerHTML =
+      UI_createSearchInput({
+        id: "inv-filter-value",
+        label,
+        placeholder,
+        listKey,
+        required: false,
+        customClear: "clearInventoryFilter",
+      });
+
+    // הצג הכל עבור סוג הסינון החדש
+    loadInventoryReport(null);
+  }
+
+  function clearInventoryFilter(btn) {
+    clearInputByComponent(btn);
+    loadInventoryReport(null);
+  }
+
+  function resetInventory() {
+    const firstTab = document.querySelector("#inv-filter-tabs button");
+    setInventoryFilter("team", firstTab);
+  }
+
+  // -------- סינון מקומי — null = הצג הכל --------
+  function loadInventoryReport(filterId) {
+    const filterColMap = {
+      team: "teamId",
+      location: "locationId",
+      product: "productId",
+      signee: "signeeId",
+    };
+    const filterKey = filterColMap[_invFilterType];
+
+    // מסתירים צוותים חיצוניים (חטיבה 215, אוגדה 162) אלא אם נבחרו ספציפית מסינון צוות
+    const specificExcludedTeam =
+      _invFilterType === "team" &&
+      filterId &&
+      isExcludedTeamForReports(filterId);
+    const baseRows = specificExcludedTeam
+      ? _invAllRows
+      : _invAllRows.filter((r) => !isExcludedTeamForReports(r.teamId));
+
+    const filtered =
+      filterId != null
+        ? baseRows.filter((r) => r[filterKey] === filterId)
+        : baseRows;
+    const sorted = sortInventoryRows(filtered);
+    _invLastRows = sorted;
+
+    const filterInput = document.getElementById("inv-filter-value");
+    document.getElementById("inv-results-title").innerText =
+      filterId && filterInput ? filterInput.value : "הכל";
+
+    const columns = _getInventoryColumns(_invFilterType);
+    const summary = UI_computeStatusSummary(sorted, { useQty: true });
+    UI_renderInventoryTable("inv-table-container", {
+      rows: sorted,
+      columns,
+      summary,
+    });
+  }
+
+  // -------- הגדרות עמודות לפי סוג סינון --------
+  function _getInventoryColumns(filterType) {
+    const statusCol  = UI_tableCol_status();
+    const qtyCol     = UI_tableCol_qty();
+    const signeeCol  = UI_tableCol_signee();
+    const teamCol    = UI_tableCol_team({ nameKey: "teamName" });
+    const productCol = UI_tableCol_product({ key: "productId", fallbackKey: "productName" });
+
+    if (filterType === "team") {
+      return [
+        productCol,
+        UI_tableCol_location({ nameKey: "locationName" }),
+        signeeCol,
+        qtyCol,
+        statusCol,
+      ];
+    }
+    if (filterType === "location") {
+      return [
+        productCol,
+        teamCol,
+        signeeCol,
+        qtyCol,
+        statusCol,
+      ];
+    }
+    if (filterType === "product") {
+      return [
+        teamCol,
+        UI_tableCol_location({ nameKey: "locationName" }),
+        signeeCol,
+        qtyCol,
+        statusCol,
+      ];
+    }
+    if (filterType === "signee") {
+      return [
+        productCol,
+        teamCol,
+        UI_tableCol_location({ nameKey: "locationName" }),
+        qtyCol,
+        statusCol,
+      ];
+    }
+    return [];
+  }
+
+  // -------- העתקה וייצוא --------
+  function exportInventoryToSheets() {
+    if (!_invLastRows.length) return;
+    const title = "דוח מלאי - " + (document.getElementById("inv-results-title").innerText || "הכל");
+    UI_exportToSheets({ title, columns: _getInventoryColumns(_invFilterType), rows: _invLastRows });
+  }
+
+  function copyInventoryTable() {
+    if (!_invLastRows.length) return;
+    const btn = document.querySelector("#inv-results .copy-btn");
+    const cols = _getInventoryColumns(_invFilterType);
+
+    UI_doCopy(btn, UI_tableToTsv(cols, _invLastRows), "העתק");
+  }
+
+  // -------- אתחול עמוד — טעינה חד-פעמית מהשרת --------
+  function initInventoryPage() {
+    renderNavbar("inventory-nav-anchor", {
+      title: "דוח מלאי",
+      backPage: "home-page",
+      resetFn: "confirmAndExecuteReset(resetInventory)",
+    });
+
+    UI_createSkeleton("inv-init-skeleton", [
+      { type: "pill", size: "large", style: "height: 110px; border-radius: 10px; margin-bottom: 12px;" },
+      { type: "pill", size: "large", style: "height: 200px; border-radius: 10px;" },
+    ]);
+
+    let _appReady = false;
+    let _dataReady = false;
+    let _pendingRows = null;
+
+    const _tryReveal = () => {
+      if (!_appReady || !_dataReady) return;
+      _invAllRows = _pendingRows;
+      document.getElementById("inv-init-skeleton").style.display = "none";
+      document.getElementById("inv-filter-card").style.display = "block";
+      document.getElementById("inv-results").style.display = "block";
+      const firstTab = document.querySelector("#inv-filter-tabs button");
+      setInventoryFilter("team", firstTab);
+    };
+
+    _whenDataReady(() => {
+      _appReady = true;
+      _tryReveal();
+    });
+
+    const _applyInventoryData = (rows) => {
+      _pendingRows = rows;
+      _dataReady = true;
+      _tryReveal();
+    };
+    const _applyInventoryError = (msg) => {
+      document.getElementById("inv-init-skeleton").style.display = "none";
+      alert("שגיאה בטעינת נתונים: " + msg);
+    };
+
+    _waitForPrefetch({
+      getData:  () => _prefetchedInventoryReport,
+      getError: () => _prefetchedInventoryError,
+      onData:  _applyInventoryData,
+      onError: _applyInventoryError,
+    });
+  }
+</script>

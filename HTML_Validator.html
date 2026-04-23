@@ -1,0 +1,88 @@
+<script>
+  function getValidatorHTML() {
+    return `<div id="validator-page" class="page active">
+  <div id="validator-nav-anchor"></div>
+
+  <!-- צללית טעינה (תופיע רק בזמן טעינת האפליקציה) -->
+  <div id="validator-init-skeleton"></div>
+
+  <!-- תוכן אמיתי (מוסתר בהתחלה) -->
+  <div id="validator-real-content" style="display: none;">
+    <!-- פילטור לפי צוות -->
+    <div class="card p-3 mb-4 shadow-sm border-primary">
+  <div id="val-team-filter-anchor"></div> <!-- העוגן החדש -->
+</div>
+
+    <div class="row g-4">
+      <!-- צד ימין: הדבקת הודעות מהשטח -->
+      <div class="col-lg-5">
+        <div class="card shadow-sm mb-4 border-primary">
+          <div class="card-header bg-white text-primary fw-bold val-msg-header" onclick="toggleCollapsible('val-msg-body','val-msg-chevron')">
+            <span>אימות דיווחים בדוח</span>
+            <svg class="val-msg-chevron" id="val-msg-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="val-msg-body" id="val-msg-body">
+            <div class="card-body">
+              <p class="x-small text-muted">העתק והדבק כאן את כל הודעות ה-צ' שקיבלת</p>
+              <textarea id="val-message-input" class="form-control"
+                        style="height: 250px; font-size: 13px; border-radius: 10px;"
+                        placeholder="ס&quot;צ:&#10;563980- מכולה..."
+                        oninput="document.getElementById('error-val-message-input').style.display='none'; this.classList.remove('is-invalid-field')"></textarea>
+              <div class="field-error-msg" id="error-val-message-input">נא להדביק הודעות דיווח</div>
+
+              <div class="mt-2">
+                <button id="val-submit-btn" class="btn btn-primary w-100 p-3 fw-bold" style="border-radius: 12px; font-size: 14px;" onclick="runValidation()">בצע השוואה</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- צד שמאל: תוצאות -->
+      <div class="col-lg-7">
+        <div id="val-results-skeleton"></div>
+        <div id="val-loader" style="display:none;" class="text-center py-5">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="mt-2 text-primary">מבצע השוואה...</p>
+        </div>
+
+        <div id="val-results-container" style="display:none;">
+          <div id="val-alerts"></div>
+
+          <div class="d-flex justify-content-between align-items-center py-2 mb-1">
+            <span class="fw-bold text-primary small"><span id="val-report-title">הכל</span></span>
+            <div class="d-flex align-items-center gap-2">
+              <div class="val-toggle" id="val-view-toggle" onclick="setValView(_valCurrentView === 'list' ? 'table' : 'list')">
+                <div class="val-toggle-slider" id="val-toggle-slider"></div>
+                <div class="val-toggle-btn active" id="val-toggle-list">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  רשימה
+                </div>
+                <div class="val-toggle-btn" id="val-toggle-table">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                  טבלה
+                </div>
+              </div>
+              <div class="d-flex gap-1">
+                <button id="val-copy-btn" onclick="copyValidatorReportToClipboard()" class="copy-btn" data-tooltip="העתקה">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                </button>
+                <button id="val-share-btn" onclick="shareValidatorReport()" class="copy-btn" data-tooltip="שיתוף">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                </button>
+                <button id="val-sheets-btn" onclick="exportValidatorToSheets()" class="copy-btn" style="display:none;" data-tooltip="יצירת Sheet">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="val-report-display"
+               style="white-space: pre-wrap; font-family: monospace; font-size: 13px; line-height: 1.6;"></div>
+          <div id="val-table-container" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+  }
+</script>

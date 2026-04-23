@@ -1,0 +1,31 @@
+<script>
+  /**
+   * JS_ReportUtils — לוגיקות מיון משותפות לדוחות.
+   * sortProductIds: לדוח צ' (מיון לפי productId).
+   * sortInventoryRows: לדוח מלאי (מיון שורות שטוחות לפי productId שלהן).
+   * שתיהן ממיינות לפי עמודת Prioritization בקטלוג,
+   * ובאותו מספר — לפי סדר הופעה בקטלוג.
+   */
+
+  function _catalogSortKey(productId) {
+    const idx = appData.catalog.findIndex((c) => c.id === productId);
+    const order = idx >= 0 && appData.catalog[idx].sortOrder != null
+      ? appData.catalog[idx].sortOrder
+      : Infinity;
+    return { order, idx: idx >= 0 ? idx : Infinity };
+  }
+
+  function sortProductIds(productIds) {
+    return [...productIds].sort((a, b) => {
+      const kA = _catalogSortKey(a), kB = _catalogSortKey(b);
+      return kA.order !== kB.order ? kA.order - kB.order : kA.idx - kB.idx;
+    });
+  }
+
+  function sortInventoryRows(rows) {
+    return [...rows].sort((a, b) => {
+      const kA = _catalogSortKey(a.productId), kB = _catalogSortKey(b.productId);
+      return kA.order !== kB.order ? kA.order - kB.order : kA.idx - kB.idx;
+    });
+  }
+</script>

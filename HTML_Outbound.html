@@ -1,0 +1,42 @@
+<script>
+  function getOutboundHTML() {
+    return `<div id="outbound-page" class="page active">
+    <div id="outbound-nav-anchor"></div>
+
+  <div id="skeleton-container"></div>
+  <form id="outbound-form" style="display: none" novalidate>
+    <!-- שורת יעד ומיקום -->
+    <div class="row mb-4">
+  <div class="col-6" id="dest-team-anchor"></div>
+  <div class="col-6" id="location-anchor"></div>
+</div>
+
+    <!-- קונטיינר מוצרים -->
+    <div id="items-container"></div>
+
+    <!-- כפתור הוספת מוצר - מעוצב ומוגבל ברוחב -->
+    <div class="add-item-container">
+      <div class="field-error-msg mb-2 items-count-error">נא לבחור לפחות מוצר אחד</div>
+      <button
+        type="button"
+        id="btn-add-item"
+        class="btn btn-outline-primary btn-sm btn-add-item"
+        onclick="addItemRow()"
+      >
+        + הוסף מוצר
+      </button>
+    </div>
+
+    <hr class="my-4" />
+
+    <!-- שורת חתימה - עמוד ניפוק -->
+<div class="row mb-4">
+  <div class="col-6" id="signee-name-anchor"></div>
+  <div class="col-6" id="signee-id-anchor"></div>
+</div>
+
+    <div class="form-submit-container" id="outbound-submit-anchor"></div>
+  </form>
+</div>`;
+  }
+</script>

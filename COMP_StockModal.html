@@ -1,0 +1,149 @@
+<!-- מודאל מכולה מרוכז - עיצוב מעודכן -->
+<div id="stock-modal" class="custom-modal-overlay">
+  <div class="custom-modal" style="max-width: 450px; padding: 20px">
+    <h4 class="text-center mb-3">📦 משיכה ממלאי קשר</h4>
+    <p style="font-size: 13px" class="text-muted text-center">
+      המוצרים הבאים נמצאו במלאי קשר.<br>בחר מיקום וציין כמה נלקחו:
+    </p>
+    <div
+      id="stock-items-table"
+      style="
+        max-height: 250px;
+        overflow-y: auto;
+        margin-bottom: 20px;
+        border-radius: 8px;
+      "
+    >
+      <!-- הטבלה תיווצר כאן -->
+    </div>
+    <!-- כפתורים קטנים בשורה אחת -->
+    <div class="d-flex gap-2">
+      <button
+        class="btn btn-outline-secondary btn-sm flex-grow-1 py-2"
+        id="stock-skip-btn"
+        style="font-size: 13px"
+      >
+        אף אחד לא מהמכולה
+      </button>
+      <button
+        class="btn btn-success btn-sm flex-grow-1 py-2"
+        id="stock-confirm-btn"
+        style="font-size: 13px; font-weight: bold"
+      >
+        אשר והמשך
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function _updateStockLocSelection(sel) {
+    const count = parseInt(sel.options[sel.selectedIndex].dataset.count) || 0;
+    const row = sel.closest("tr");
+    row.querySelector(".stock-available").textContent = count;
+    const qtyInput = row.querySelector(".stock-qty-input");
+    qtyInput.max = count;
+    if (parseInt(qtyInput.value) > count) qtyInput.value = count;
+    const errDiv = row.querySelector(".stock-qty-error");
+    if (errDiv) { errDiv.style.display = "none"; errDiv.textContent = ""; }
+    qtyInput.classList.remove("is-invalid-field");
+  }
+
+  /**
+   * showContainerStockModal — מציג מודאל משיכה ממלאי קשר ומחזיר Promise<Array>
+   *
+   * @param {Array} stockQueue - [{ productId, productName, available, requestedQty, byLocation: [{locId, count, rowIds}] }]
+   * @returns {Promise<Array>} מערך של { productId, qty, rowIds } לפריטים שנלקחו
+   */
+  async function showContainerStockModal(stockQueue) {
+    return new Promise((resolve) => {
+      const tableDiv = document.getElementById("stock-items-table");
+
+      let html = `<table class="table table-sm text-center" style="font-size: 13px; margin-bottom:0;">
+        <thead class="table-light">
+          <tr>
+            <th class="p-2 text-center">מוצר</th>
+            <th class="p-2 text-center">מיקום</th>
+            <th class="p-2 text-center">במלאי</th>
+            <th class="p-2 text-center">נלקח</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+      stockQueue.forEach((item, index) => {
+        const locOptions = item.byLocation.map((loc) => {
+          const locName = appLookupName("locations", loc.locId) || loc.locId;
+          return `<option value="${loc.locId}" data-count="${loc.count}">${locName}</option>`;
+        }).join("");
+        const firstMax = item.byLocation[0] ? item.byLocation[0].count : 0;
+
+        html += `
+          <tr>
+            <td class="p-2" style="vertical-align: middle;">${item.productName}</td>
+            <td class="p-2" style="vertical-align: middle;">
+              <select class="form-select form-select-sm stock-loc-select"
+                      data-index="${index}"
+                      style="min-width: 110px; font-size: 12px;"
+                      onchange="_updateStockLocSelection(this)">
+                ${locOptions}
+              </select>
+            </td>
+            <td class="p-2 stock-available" style="vertical-align: middle;">${firstMax}</td>
+            <td class="p-2" style="vertical-align: middle;">
+              <input type="number" class="stock-qty-input form-control form-control-sm text-center"
+                     value="${Math.min(item.requestedQty, firstMax)}"
+                     min="0" max="${firstMax}"
+                     onfocus="this.select()"
+                     inputmode="numeric"
+                     data-index="${index}" style="width: 60px; margin: 0 auto;">
+              <div class="field-error-msg stock-qty-error" style="display:none; font-size: 11px; white-space: nowrap;"></div>
+            </td>
+          </tr>`;
+      });
+      html += `</tbody></table>`;
+      tableDiv.innerHTML = html;
+
+      openModal("stock-modal");
+
+      document.getElementById("stock-confirm-btn").className = "btn btn-sm btn-success px-4";
+      document.getElementById("stock-skip-btn").className = "btn btn-sm btn-outline-secondary px-4";
+      const newConfirm = _resetModalButton("stock-confirm-btn");
+      const newSkip    = _resetModalButton("stock-skip-btn");
+
+      newSkip.onclick = () => { closeModal("stock-modal"); resolve([]); };
+
+      newConfirm.onclick = () => {
+        const rows = tableDiv.querySelectorAll("tbody tr");
+        const results = [];
+        let hasError = false;
+        rows.forEach((row, idx) => {
+          const locSelect = row.querySelector(".stock-loc-select");
+          const qtyInput = row.querySelector(".stock-qty-input");
+          const errDiv = row.querySelector(".stock-qty-error");
+          const val = parseInt(qtyInput.value) || 0;
+          const max = parseInt(qtyInput.max) || 0;
+          errDiv.style.display = "none";
+          errDiv.textContent = "";
+          if (val > max) {
+            errDiv.textContent = `מקסימום ${max} במיקום זה`;
+            errDiv.style.display = "block";
+            qtyInput.classList.add("is-invalid-field");
+            hasError = true;
+            return;
+          }
+          qtyInput.classList.remove("is-invalid-field");
+          if (val > 0) {
+            const selectedLocId = locSelect.value;
+            const locData = stockQueue[idx].byLocation.find((l) => l.locId === selectedLocId);
+            if (locData) {
+              results.push({ productId: stockQueue[idx].productId, qty: val, rowIds: locData.rowIds.slice(0, val) });
+            }
+          }
+        });
+        if (hasError) return;
+        closeModal("stock-modal");
+        resolve(results);
+      };
+    });
+  }
+</script>

@@ -1,0 +1,67 @@
+<script>
+  /**
+   * UI_createItemRow — יוצר אלמנט כרטיס שורת מוצר
+   *
+   * @param {object} options
+   *   rowId    {string}   - מזהה ייחודי לשורה (ישמש גם ל-id של הדיב)
+   *   removeFn {string}   - שם פונקציית ההסרה (תיקרא עם rowId)
+   *   gutter   {string}   - מחלקת גאטר לשורה הפנימית, ברירת מחדל "g-3"
+   *   innerHTML{string}   - תוכן ה-HTML הפנימי (שדות הספציפיים לעמוד)
+   *
+   * @returns {HTMLElement}
+   */
+  function removeItemRow(id) {
+    const row = document.getElementById(id);
+    if (!row) return;
+    const isStatus = !!row.closest("#status-items-container");
+    const containerId = isStatus ? "status-items-container" : "items-container";
+    const container = document.getElementById(containerId);
+    const rows = container.querySelectorAll(".item-row");
+    const errorMsg = container.nextElementSibling?.querySelector(".items-count-error");
+
+    if (rows.length > 1) {
+      row.remove();
+      if (errorMsg) errorMsg.style.display = "none";
+    } else {
+      if (errorMsg) {
+        errorMsg.style.display = "block";
+        errorMsg.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }
+
+  function validateHasProducts(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return true;
+
+    const rows = container.querySelectorAll(".item-row");
+    const hasAny = Array.from(rows).some((row) => {
+      const prodInput = row.querySelector('.form-control[oninput*="handleSearchInput"]');
+      return prodInput && prodInput.value.trim();
+    });
+
+    const errorDiv = container.nextElementSibling?.querySelector(".items-count-error");
+    if (!hasAny) {
+      if (errorDiv) {
+        errorDiv.style.display = "block";
+        errorDiv.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return false;
+    }
+    if (errorDiv) errorDiv.style.display = "none";
+    return true;
+  }
+
+  function UI_createItemRow({ rowId, removeFn, gutter = "g-3", innerHTML }) {
+    const div = document.createElement("div");
+    div.className = "item-row card p-3 pt-4 mb-3 bg-light position-relative shadow-sm";
+    div.id = rowId;
+    div.innerHTML = `
+      <button type="button" class="btn-close btn-remove-row" onclick="${removeFn}('${rowId}')"></button>
+      <div class="row ${gutter}">
+        ${innerHTML}
+      </div>
+    `;
+    return div;
+  }
+</script>

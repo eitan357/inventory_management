@@ -1,0 +1,49 @@
+<!doctype html>
+<html dir="rtl">
+  <head>
+    <base target="_top" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <?!= include('CSS_Style'); ?>
+  </head>
+  <body>
+    <?!= include('COMP_LoadingOverlay'); ?> <?!= include('COMP_SuccessModal'); ?> <?!= include('COMP_RelatedModal'); ?> <?!= include('COMP_ConfirmModal'); ?> <?!= include('COMP_StockModal'); ?> <?!= include('COMP_Navbar'); ?> <?!=
+    include('COMP_FieldError'); ?> <?!= include('COMP_SearchInput'); ?> <?!= include('COMP_Buttons'); ?> <?!= include('COMP_Skeleton'); ?>
+
+    <!-- סרגל ניווט עליון -->
+    <nav class="navbar navbar-light mb-4" id="main-navbar">
+      <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1">קשר-אלוג 📋</span>
+        <div class="d-flex align-items-center gap-2">
+          <span id="user-info" class="text-dark small">טוען...</span>
+          <button id="refresh-btn" type="button" class="action-btn action-btn-light" onclick="refreshAppData()" data-tooltip="רענן נתונים">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- מיכל העמודים המרכזי -->
+    <div class="container">
+      <div id="page-container">
+        <?!= include('HTML_Home'); ?>
+      </div>
+    </div>
+
+    <?!= include('COMP_ItemRow'); ?> <?!= include('COMP_SigneeRow'); ?> <?!= include('COMP_Modal'); ?> <?!= include('COMP_InventoryTable'); ?> <?!= include('COMP_Collapse'); ?> <?!= include('HTML_Outbound'); ?> <?!= include('HTML_Status'); ?> <?!= include('HTML_Validator'); ?> <?!= include('HTML_Inventory'); ?> <?!= include('JS_Common'); ?> <?!= include('JS_Outbound'); ?> <?!=
+    include('JS_Status'); ?> <?!= include('JS_ReportUtils'); ?> <?!= include('JS_Validator'); ?> <?!= include('JS_Inventory'); ?> <?!= include('JS_HitboxFix'); ?>
+
+    <script>
+      initApp();
+    </script>
+
+  </body>
+</html>

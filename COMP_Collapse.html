@@ -1,0 +1,17 @@
+<script>
+  /**
+   * toggleCollapsible — פותח/סוגר אזור מתקפל.
+   * נדרש: class="val-msg-body" על bodyId, class="val-msg-chevron" על chevronId (מ-CSS_Style).
+   * @param {string}  bodyId    - id של האלמנט שמתרחב/מתכווץ
+   * @param {string}  chevronId - id של ה-SVG chevron שמסתובב
+   * @param {boolean} [forceOpen] - כפיית מצב: true=פתח, false=סגור
+   */
+  function toggleCollapsible(bodyId, chevronId, forceOpen) {
+    const body    = document.getElementById(bodyId);
+    const chevron = document.getElementById(chevronId);
+    if (!body) return;
+    const open = forceOpen !== undefined ? forceOpen : !body.classList.contains("open");
+    body.classList.toggle("open", open);
+    if (chevron) chevron.classList.toggle("open", open);
+  }
+</script>

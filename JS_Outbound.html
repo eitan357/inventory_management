@@ -1,0 +1,327 @@
+<script>
+  //---------------------------- ניהול שורות מוצרים -------------------------
+  function addItemRow() {
+    const container = document.getElementById("items-container");
+    const errorMsg = container?.nextElementSibling?.querySelector(".items-count-error");
+    if (errorMsg) errorMsg.style.display = "none";
+    const rowId = "row-" + Date.now();
+
+    const productSearchHTML = UI_createSearchInput({
+      id: "prod-name-" + rowId,
+      label: "שם מוצר",
+      placeholder: "חפש מוצר...",
+      listKey: "catalog",
+      showHiddenId: true,
+      errorMsg: "נא לבחור מוצר מהרשימה",
+      extraAttributes: `class="form-control prod-name"`,
+    });
+
+    const div = UI_createItemRow({
+      rowId,
+      removeFn: "removeItemRow",
+      innerHTML: `
+        <div class="col-12">
+            ${productSearchHTML}
+            ${UI_fieldError(null, "מוצר זה כבר מופיע בטופס", "prod-duplicate-msg")}
+        </div>
+
+        <div class="col-12 qty-container search-field-container" data-required="true">
+            <label class="x-small">כמות (1-50) <span class="text-danger">*</span></label>
+            <div class="searchable-input-wrapper">
+                <input type="number"
+                       id="prod-qty-${rowId}"
+                       class="form-control prod-qty"
+                       value="1" min="1" max="50"
+                       inputmode="numeric"
+                       onfocus="this.select()"
+                       oninput="toggleClearBtn(this); hideError(this)">
+                <span class="clear-input-btn" onclick="clearInputByComponent(this)" style="display:block;">&times;</span>
+            </div>
+            ${UI_fieldError("error-prod-qty-" + rowId, "נא להזין כמות בין 1 ל-50")}
+        </div>
+
+        <div class="col-12 sn-container hidden-field">
+            ${UI_fieldError(null, "מספר צ' זה כבר מופיע בטופס", "sn-duplicate-msg")}
+            ${UI_createSearchInput({
+              id: "prod-sn-" + rowId,
+              label: "מספר צ'",
+              placeholder: "הזן מספר צ'",
+              errorMsg: "נא להזין מספר צ'",
+              extraAttributes: `class="form-control prod-sn" inputmode="numeric" pattern="[0-9]*"`,
+            })}
+        </div>
+      `,
+    });
+    container.appendChild(div);
+
+    // extraAttributes מוסיף class שני שהדפדפן מתעלם ממנו — מוסיפים ידנית
+    div.querySelector(`#prod-name-${rowId}`).classList.add("prod-name");
+    div.querySelector(`#prod-sn-${rowId}`).classList.add("prod-sn");
+  }
+
+  // פונקציית עזר להוספת שורה עם נתונים קיימים
+  function addPopulatedRow(product) {
+    addItemRow();
+
+    // מוצאים את כל השורות ולוקחים את האחרונה שנוספה
+    const allRows = document.querySelectorAll("#items-container .item-row");
+    const lastRow = allRows[allRows.length - 1];
+
+    if (!lastRow) return;
+
+    // מילוי נתונים
+    lastRow.querySelector(".prod-id").value = product.id;
+    lastRow.querySelector(".prod-name").value = getProductDisplayName(product);
+
+    // הצגת ה-X לניקוי השורה
+    const clearBtn = lastRow.querySelector(".clear-input-btn");
+    if (clearBtn) clearBtn.style.display = "block";
+
+    // עדכון תצוגת צ' / כמות
+    const isTs = product.type && product.type.trim() === appData.config.CATALOG_TYPE_SN;
+    toggleSnQtyContainers(lastRow, isTs);
+  }
+
+  async function _handleOutboundSubmit(e) {
+    e.preventDefault();
+    clearAllErrors();
+
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalBtnText = "אשר חתימה ושלח ניפוק";
+    btn.disabled = true;
+
+    try {
+      // ---- ולידציה מקומית ----
+      const hasProducts = validateHasProducts("items-container");
+      const fieldsValid = validateContainerFields("outbound-form");
+      if (!hasProducts || !fieldsValid) return;
+      if (!validateNoDuplicateProducts("items-container")) return;
+      if (!validateNoDuplicateSns("items-container")) return;
+
+      let valid = true;
+      const items = [];
+      const rowElements = document.querySelectorAll("#items-container .item-row");
+
+      for (let i = 0; i < rowElements.length; i++) {
+        const row = rowElements[i];
+        const pId = row.querySelector(".prod-id").value;
+        const prodInput = row.querySelector(".prod-name");
+        const snInput = row.querySelector(".prod-sn");
+        const isTs = !row.querySelector(".sn-container").classList.contains("hidden-field");
+
+        if (!isTs) {
+          const qtyInput = row.querySelector(".prod-qty");
+          const qty = parseInt(qtyInput.value) || 0;
+          if (qty < 1 || qty > 50) { setFieldError(qtyInput.id); valid = false; }
+        }
+
+        if (!pId) continue;
+
+        if (pId && isTs) {
+          const snVal = snInput.value.trim();
+          if (!snVal) {
+            setFieldError(snInput.id); valid = false;
+          }
+        }
+
+        if (valid && pId) {
+          items.push({
+            productName: prodInput.value,
+            productId: pId,
+            qty: isTs ? 1 : parseInt(row.querySelector(".prod-qty").value),
+            sn: isTs ? snInput.value.trim() : "",
+            isTs,
+            status: appData.config.STATUS_ACTIVE_NAME,
+          });
+        }
+      }
+
+      if (!valid || items.length === 0) return;
+
+      // ---- בניית formData ובקשה ראשונה לשרת ----
+      const teamInput = document.getElementById("dest-team");
+      const locInput  = document.getElementById("location");
+      const signeeName = document.getElementById("signee-name");
+      const signeeId   = document.getElementById("signee-id");
+
+      const mainTeamId = appData.teams.find(t => t.role === appData.config.TEAM_ROLE_MAIN)?.id;
+      const formData = {
+        action:       appData.config.ACTION_NIPUK_ID,
+        teamName:     teamInput.value,
+        teamId:       teamInput.dataset.selectedId,
+        locationName: locInput.value,
+        locationId:   locInput.dataset.selectedId,
+        signeeName:   signeeName.value,
+        signeeID:     signeeId.value,
+        items:        JSON.parse(JSON.stringify(items)),
+        issuerName:   appData.user.name,
+        issuerId:     appData.user.id,
+        mainTeamId,
+      };
+
+      showLoading("בודק מלאי וזמינות מכשירים");
+      const result = await _callServerAsync(r => r.validateAndSave(formData));
+
+      // ---- טיפול בקונפליקטים ומלאי (רק אם נדרש) ----
+      if (result.needsConfirmation) {
+        // 1. קונפליקטים של מכשירי צ'
+        for (const item of formData.items) {
+          item.actionNote = null;
+          if (!item.isTs || !result.conflicts[item.sn]) continue;
+
+          const c = result.conflicts[item.sn];
+          const sourceTeamId = c.teamId;
+          const config = appData.config;
+          const sourceTeamName = appLookupName("teams", sourceTeamId);
+          let question;
+
+          if (formData.teamId === mainTeamId) {
+            item.actionNote = config.ACTION_ZIKUY_ID;
+            question = `המכשיר ${item.sn} רשום על ${sourceTeamName}. האם לבצע זיכוי ולהעביר לקשר?`;
+          } else if (sourceTeamId === mainTeamId) {
+            item.actionNote = config.ACTION_NIPUK_ID;
+            question = `המכשיר ${item.sn} רשום על קשר. האם לבצע ניפוק לצוות ${formData.teamName}?`;
+          } else {
+            item.actionNote = config.ACTION_TRANSFER_ID;
+            question = `המכשיר ${item.sn} רשום על ${sourceTeamName}. האם לבצע החלפת חתימות?`;
+          }
+
+          hideLoading();
+          const confirmRes = await showCustomConfirm("זיהוי מכשיר פעיל", question);
+          if (!confirmRes) throw new Error("USER_CANCELLED");
+          item.closeOldRowId = c.rowId;
+        }
+
+        // 2. מלאי מכולה
+        if (formData.teamId !== mainTeamId) {
+          const stockQueue = [];
+          formData.items.forEach((item) => {
+            if (!item.isTs && result.stocks[item.productId]) {
+              const s = result.stocks[item.productId];
+              stockQueue.push({ productId: item.productId, productName: item.productName, available: s.count, requestedQty: item.qty, byLocation: s.byLocation });
+            }
+          });
+          if (stockQueue.length > 0) {
+            hideLoading();
+            const selections = await showContainerStockModal(stockQueue);
+            // סמן את כל הפריטים שהוצגו במודל כ"הוחלט" (גם אם המשתמש דילג)
+            stockQueue.forEach((queueItem) => {
+              const item = formData.items.find((i) => i.productId === queueItem.productId);
+              if (item && !item.closeOldRowIds) item.closeOldRowIds = [];
+            });
+            selections.forEach((sel) => {
+              const item = formData.items.find((i) => i.productId === sel.productId);
+              if (item) { item.actionNote = appData.config.ACTION_NIPUK_ID; item.closeOldRowIds = sel.rowIds; }
+            });
+          }
+        }
+
+        // 3. שמירה — בקשה שנייה לשרת אחרי פתרון כל הקונפליקטים
+        showLoading("מעדכן נתונים");
+        const saveResult = await _callServerAsync(r => r.validateAndSave(formData));
+        if (!saveResult.saved) throw new Error("שגיאה בשמירה, נסה שוב");
+      }
+
+      hideLoading();
+      showSuccessModal({
+        title: "הניפוק בוצע בהצלחה!",
+        metaRows: [
+          [
+            { label: "סוג פעולה", value: "ניפוק ציוד" },
+            { label: "מנפק", value: appData.user.name },
+          ],
+          [
+            { label: "אל צוות", value: formData.teamName },
+            { label: "מיקום", value: formData.locationName },
+            { label: "חתימת מקבל", value: formData.signeeName + " (" + formData.signeeID + ")" },
+          ],
+        ],
+        items: formData.items,
+      });
+
+      resetOutboundForm();
+      showPage("home-page");
+
+    } catch (err) {
+      hideLoading();
+      if (err.message !== "USER_CANCELLED") {
+        console.error("Transaction Error:", err);
+        alert("ארעה שגיאה: " + err.message);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerText = originalBtnText;
+    }
+  }
+
+  // -------- אתחול עמוד ניפוק --------
+  function initOutboundPage() {
+    UI_createSkeleton("skeleton-container", [
+      { type: "row", pills: ["med", "med"] },
+      {
+        type: "pill",
+        size: "large",
+        style: "height: 120px; border-radius: 15px",
+      },
+      { type: "row", pills: ["med", "med"] },
+      { type: "pill", size: "large", style: "height: 50px" },
+    ]);
+    document.getElementById("skeleton-container").style.display = "block";
+
+    renderNavbar("outbound-nav-anchor", {
+      title: "ניפוק ציוד",
+      backPage: "home-page",
+      resetFn: "confirmAndExecuteReset(resetOutboundForm)",
+    });
+
+    document.getElementById("dest-team-anchor").innerHTML =
+      UI_createSearchInput({
+        id: "dest-team",
+        label: "צוות יעד",
+        placeholder: "חפש צוות",
+        listKey: "teams",
+        errorMsg: "נא לבחור צוות יעד מהרשימה",
+      });
+    document.getElementById("location-anchor").innerHTML = UI_createSearchInput(
+      {
+        id: "location",
+        label: "מיקום",
+        placeholder: "חפש מיקום",
+        listKey: "locations",
+        errorMsg: "נא לבחור מיקום מהרשימה",
+      },
+    );
+    UI_renderSigneeRow({
+      nameAnchorId: "signee-name-anchor",
+      idAnchorId: "signee-id-anchor",
+      nameInputId: "signee-name",
+      idInputId: "signee-id",
+      nameLabel: "שם המקבל",
+      namePlaceholder: "חפש או הזן שם",
+      submitAnchorId: "outbound-submit-anchor",
+      submitLabel: "אשר חתימה ושלח ניפוק",
+      submitClass: "btn-success",
+    });
+
+    document.getElementById("outbound-form").onsubmit = _handleOutboundSubmit;
+
+    _whenDataReady(() => {
+      document.getElementById("skeleton-container").style.display = "none";
+      document.getElementById("outbound-form").style.display = "block";
+      if (document.querySelectorAll("#items-container .item-row").length === 0) addItemRow();
+    });
+  }
+
+  //--------------------------------------- איפוס -------------------------------------------
+  function resetOutboundForm() {
+    // ניקוי שדות בסיסיים
+    clearAllFieldsInContainer("outbound-form");
+
+    // טיפול ספציפי בשורות המוצרים (להשאיר רק שורה אחת ריקה)
+    const container = document.getElementById("items-container");
+    if (container) {
+      container.innerHTML = "";
+      addItemRow();
+    }
+  }
+</script>

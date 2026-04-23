@@ -1,0 +1,43 @@
+<!-- COMP_Skeleton.html -->
+<script>
+  /**
+   * יוצר HTML של שלד טעינה ומזריק אותו לתוך קונטיינר
+   * @param {string} containerId - ה-ID של הדיב אליו מזריקים
+   * @param {Array} items - מערך של אובייקטי תצורה לשלד
+   *
+   * סוגי פריטים:
+   *   { type: 'pill', size: 'small'|'med'|'large', style: '...' }
+   *   { type: 'row', pills: ['med', 'large', ...] }
+   *   { type: 'cols', cols: [{ width: 'col-lg-5', items: [...] }, ...] }
+   */
+  function UI_createSkeleton(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = _renderSkeletonItems(items);
+  }
+
+  function _renderSkeletonItems(items) {
+    return items.map(function(item) {
+      if (item.type === 'row') {
+        const pills = item.pills.map(function(size) {
+          return '<div class="skeleton-pill ' + size + '"></div>';
+        }).join('');
+        return '<div class="skeleton-row">' + pills + '</div>';
+      }
+
+      if (item.type === 'pill') {
+        const styleAttr = item.style ? ' style="' + item.style + '"' : '';
+        return '<div class="skeleton-pill ' + (item.size || 'large') + '"' + styleAttr + '></div>';
+      }
+
+      if (item.type === 'cols') {
+        const cols = item.cols.map(function(col) {
+          return '<div class="' + col.width + '">' + _renderSkeletonItems(col.items) + '</div>';
+        }).join('');
+        return '<div class="row g-4">' + cols + '</div>';
+      }
+
+      return '';
+    }).join('');
+  }
+</script>

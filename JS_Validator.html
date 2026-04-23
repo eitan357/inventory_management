@@ -1,0 +1,360 @@
+<script>
+  let _valAllData = null;
+  let _valDataError = null;
+  let _valCurrentView = 'list';
+  let _valLastDbReport = null;
+  let _valLastTableRows = [];
+  let _valLastTableColumns = [];
+
+  const _sortByTeamName = (items) =>
+    [...items].sort((a, b) =>
+      appLookupName("teams", a.teamId).localeCompare(appLookupName("teams", b.teamId), "he")
+    );
+
+  // סינון צד-לקוח לפי צוות
+  function _filterValData(teamId) {
+    const filtered = {};
+    Object.keys(_valAllData).forEach((productId) => {
+      const items = _valAllData[productId].filter((item) => {
+        if (teamId) {
+          return item.teamId === teamId || item.prevTeamId === teamId;
+        }
+        return !isExcludedTeamForReports(item.teamId);
+      });
+      if (items.length > 0) filtered[productId] = items;
+    });
+    return filtered;
+  }
+
+  // -------- ציור רשימה --------
+  function _renderValList(dbReport, sortedProducts, confirmedSet, teamName) {
+    const dateStr = new Date().toLocaleDateString("he-IL");
+    let header = "===== דוח צ' =====\n";
+    if (teamName) header += `צוות: ${teamName}\n`;
+    header += `תאריך: ${dateStr}\n\n`;
+    let displayHtml = header;
+    sortedProducts.forEach((productId) => {
+      const catalogItem = appLookup("catalog", productId);
+      const displayTitle = getProductDisplayName(catalogItem) || productId;
+      displayHtml += `<strong>--- ${displayTitle} ---</strong>\n`;
+
+      const items = _sortByTeamName(dbReport[productId]);
+
+      items.forEach((item, index) => {
+        const isConfirmed = confirmedSet ? confirmedSet.has(item.sn) : false;
+        const mark = confirmedSet && isConfirmed ? ' <span class="text-success fw-bold">✅</span>' : "";
+        displayHtml += `${index + 1}. ${item.sn}${mark}\n`;
+      });
+      displayHtml += `\n`;
+    });
+
+    document.getElementById("val-report-display").innerHTML =
+      displayHtml || "אין נתונים להצגה עבור הבחירה הנוכחית.";
+  }
+
+  // -------- ציור טבלה --------
+  function _renderValTable(dbReport, sortedProducts, confirmedSet) {
+    const rows = [];
+    sortedProducts.forEach((productId) => {
+      const items = _sortByTeamName(dbReport[productId]);
+      items.forEach((item) => {
+        const isAfasna = item.prevTeamId != null;
+        const displayTeamId = isAfasna ? item.prevTeamId : item.teamId;
+        const dateObj = item.date ? new Date(item.date) : null;
+        const dateStr = dateObj ? dateObj.toLocaleDateString("he-IL") : "";
+        const dateRaw = dateObj ? dateObj.getTime() : 0;
+        rows.push({
+          sn: item.sn,
+          productId,
+          teamId: displayTeamId,
+          locationId: item.locationId,
+          actionId: item.actionId,
+          isConfirmed: confirmedSet ? confirmedSet.has(item.sn) : false,
+          date: dateStr,
+          dateRaw,
+        });
+      });
+    });
+
+    const columns = [];
+    if (confirmedSet !== null) {
+      columns.push(UI_tableCol_confirmed());
+    }
+    columns.push(UI_tableCol_sn());
+    columns.push(UI_tableCol_product());
+    columns.push(UI_tableCol_team({ idKey: "teamId" }));
+    columns.push(UI_tableCol_location({ idKey: "locationId" }));
+    columns.push(UI_tableCol_status());
+    columns.push(UI_tableCol_date());
+
+    const summary = UI_computeStatusSummary(rows);
+
+    _valLastTableRows = rows;
+    _valLastTableColumns = columns;
+
+    UI_renderInventoryTable("val-table-container", { rows, columns, summary });
+  }
+
+  // -------- החלפת תצוגה --------
+  function setValView(view) {
+    _valCurrentView = view;
+    document.getElementById("val-toggle-list").classList.toggle("active", view === "list");
+    document.getElementById("val-toggle-table").classList.toggle("active", view === "table");
+    _positionValSlider(view);
+
+    const listEl = document.getElementById("val-report-display");
+    const tableEl = document.getElementById("val-table-container");
+    if (listEl) listEl.style.display = view === "list" ? "block" : "none";
+    if (tableEl) tableEl.style.display = view === "table" ? "block" : "none";
+
+    const shareBtn = document.getElementById("val-share-btn");
+    const sheetsBtn = document.getElementById("val-sheets-btn");
+    if (shareBtn) shareBtn.style.display = view === "list" ? "" : "none";
+    if (sheetsBtn) sheetsBtn.style.display = view === "table" ? "" : "none";
+  }
+
+  function _positionValSlider(view) {
+    const toggle = document.getElementById("val-view-toggle");
+    const slider = document.getElementById("val-toggle-slider");
+    const btnList = document.getElementById("val-toggle-list");
+    const btnTable = document.getElementById("val-toggle-table");
+    if (!toggle || !slider) return;
+    const activeBtn = view === "list" ? btnList : btnTable;
+    slider.style.width = activeBtn.offsetWidth + "px";
+    // RTL: רשימה = ימין (right: 3), טבלה = שמאל
+    slider.style.right = view === "list"
+      ? "3px"
+      : (toggle.offsetWidth - activeBtn.offsetWidth - 3) + "px";
+  }
+
+  // -------- פונקציה מרכזית --------
+  async function runValidation(showOnly = false) {
+    const msgInput = document.getElementById("val-message-input");
+    const teamInput = document.getElementById("val-team-filter");
+    const btn = document.getElementById("val-submit-btn");
+    const loader = document.getElementById("val-loader");
+    const resultsContainer = document.getElementById("val-results-container");
+    const alertsDiv = document.getElementById("val-alerts");
+
+    const messageContent = msgInput.value.trim();
+    const teamId = teamInput.dataset.selectedId || null;
+
+    if (!showOnly && !messageContent) {
+      const errDiv = document.getElementById("error-val-message-input");
+      errDiv.style.display = "block";
+      msgInput.classList.add("is-invalid-field");
+      msgInput.focus();
+      return;
+    }
+
+    if (!showOnly) {
+      btn.disabled = true;
+      btn.innerText = "טוען...";
+      loader.style.display = "block";
+      resultsContainer.style.display = "none";
+      alertsDiv.innerHTML = "";
+    }
+
+    try {
+      if (!_valAllData) {
+        if (_valDataError) throw new Error(_valDataError);
+        await new Promise((resolve, reject) => {
+          const check = setInterval(() => {
+            if (_valAllData) { clearInterval(check); resolve(); }
+            if (_valDataError) { clearInterval(check); reject(new Error(_valDataError)); }
+          }, 100);
+        });
+      }
+
+      const dbReport = _filterValData(teamId);
+
+      // כותרת
+      const teamName = teamId ? appLookupName("teams", teamId) : null;
+      document.getElementById("val-report-title").textContent = teamName || "הכל";
+
+      const sortedProducts = sortProductIds(Object.keys(dbReport));
+
+      // מספרים מהודעה
+      const messageNumbers = !showOnly ? (messageContent.match(/[0-9\-\/]{5,}/g) || []) : [];
+      const messageNumbersSet = new Set(messageNumbers);
+      const confirmedSet = showOnly ? null : messageNumbersSet;
+
+      // שמירת מצב לשימוש בהעתקה/שיתוף
+      _valLastDbReport = dbReport;
+
+      // ציור שתי התצוגות
+      _renderValList(dbReport, sortedProducts, confirmedSet, teamName);
+      _renderValTable(dbReport, sortedProducts, confirmedSet);
+
+      // התראות (רק בהשוואה)
+      if (!showOnly) {
+        let dbNumbersSet = new Set(), confirmedCount = 0, totalCount = 0;
+        sortedProducts.forEach((pid) => {
+          dbReport[pid].forEach((item) => {
+            totalCount++;
+            dbNumbersSet.add(item.sn);
+            if (messageNumbersSet.has(item.sn)) confirmedCount++;
+          });
+        });
+
+        const missingFromDb = [...new Set(messageNumbers.filter((n) => !dbNumbersSet.has(n)))];
+        const duplicates = findDuplicates(messageNumbers);
+
+        if (missingFromDb.length > 0)
+          addValAlert("danger", `<strong>שגיאה:</strong> נמצאו מספרים בהודעות שלא מופיעים במערכת:`, missingFromDb);
+        if (duplicates.length > 0)
+          addValAlert("warning", `<strong>אזהרה:</strong> מספרים שמופיעים כפול בהודעות:`, duplicates);
+
+        const allConfirmed = confirmedCount === totalCount && missingFromDb.length === 0;
+        addValAlert(
+          allConfirmed ? "success" : "info",
+          allConfirmed
+            ? `<strong>אימות מלא!</strong> הכל תואם.`
+            : `סטטוס: זוהו ${confirmedCount} מתוך ${totalCount}✅`,
+          null
+        );
+      }
+
+      loader.style.display = "none";
+      resultsContainer.style.display = "block";
+      const sk = document.getElementById("val-results-skeleton");
+      if (sk) sk.style.display = "none";
+      if (!showOnly) toggleCollapsible("val-msg-body", "val-msg-chevron", false);
+      setValView(_valCurrentView);
+
+    } catch (e) {
+      alert("שגיאה: " + e.message);
+      loader.style.display = "none";
+      const sk = document.getElementById("val-results-skeleton");
+      if (sk) sk.style.display = "none";
+    } finally {
+      if (!showOnly) {
+        btn.disabled = false;
+        btn.innerText = "בצע השוואה";
+      }
+    }
+  }
+
+  // -------- העתקה ושיתוף --------
+  function copyValidatorReportToClipboard() {
+    let text;
+    if (_valCurrentView === "table" && _valLastTableRows.length) {
+      text = UI_tableToTsv(_valLastTableColumns, _valLastTableRows);
+    } else {
+      text = document.getElementById("val-report-display").innerText;
+    }
+    const btn = document.getElementById("val-copy-btn");
+    UI_doCopy(btn, text, "העתקה");
+  }
+
+  function shareValidatorReport() {
+    const text = document.getElementById("val-report-display").innerText;
+    UI_shareContent(text, "דוח צ' - קשר-אלוג");
+  }
+
+  function exportValidatorToSheets() {
+    if (!_valLastTableRows.length) return;
+    const title = "דוח צ' - " + (document.getElementById("val-report-title").innerText || "הכל");
+    UI_exportToSheets({ title, columns: _valLastTableColumns, rows: _valLastTableRows });
+  }
+
+  // -------- ניקוי פילטר צוות --------
+  function clearValidatorTeam(btn) {
+    clearInputByComponent(btn);
+    runValidation(true);
+  }
+
+  // -------- רשימת מספרים בטורים --------
+  function renderNumberList(numbers) {
+    if (!numbers || numbers.length === 0) return "";
+    const isMany = numbers.length > 8;
+    const columnStyle = isMany
+      ? 'style="column-count: 2; column-gap: 20px; text-align: left; direction: ltr;"'
+      : "";
+    return `
+      <div class="mt-2 p-2 bg-white rounded border" ${columnStyle}>
+        ${numbers.map((n) => `<div class="x-small font-monospace mb-1">• ${n}</div>`).join("")}
+      </div>`;
+  }
+
+  function addValAlert(type, titleHtml, numbers) {
+    const div = document.createElement("div");
+    div.className = `alert alert-${type} shadow-sm border-0 mb-3`;
+    div.style.fontSize = "14px";
+    let content = `<div>${titleHtml}</div>`;
+    if (numbers) content += renderNumberList(numbers);
+    div.innerHTML = content;
+    document.getElementById("val-alerts").appendChild(div);
+  }
+
+  // -------- איפוס --------
+  function resetValidator() {
+    clearAllFieldsInContainer("validator-page");
+    document.getElementById("val-alerts").innerHTML = "";
+    if (_valAllData) runValidation(true);
+  }
+
+  function findDuplicates(arr) {
+    const counts = {};
+    const duplicates = [];
+    arr.forEach((x) => (counts[x] = (counts[x] || 0) + 1));
+    for (const key in counts) {
+      if (counts[key] > 1) duplicates.push(key);
+    }
+    return duplicates;
+  }
+
+  // -------- אתחול עמוד --------
+  function initValidatorPage() {
+    UI_createSkeleton("validator-init-skeleton", [
+      { type: "pill", size: "large", style: "height: 85px; border-radius: 15px; margin-bottom: 25px;" },
+      { type: "pill", size: "large", style: "height: 380px; border-radius: 15px;" },
+    ]);
+
+    renderNavbar("validator-nav-anchor", {
+      title: "דוח צ' ואימות",
+      backPage: "home-page",
+      resetFn: "confirmAndExecuteReset(resetValidator)",
+    });
+
+    document.getElementById("val-team-filter-anchor").innerHTML = UI_createSearchInput({
+      id: "val-team-filter",
+      label: "פילטור דוח לפי צוות (בלי פילטור יופיע דוח מלא)",
+      placeholder: "חפש צוות",
+      listKey: "teams",
+      required: false,
+      customClear: "clearValidatorTeam",
+    });
+
+    UI_createSkeleton("val-results-skeleton", [
+      { type: "pill", size: "large", style: "height: 400px; border-radius: 15px;" },
+    ]);
+
+    let _appReady = false;
+    let _tsReady = false;
+
+    const _tryReveal = () => {
+      if (!_appReady || !_tsReady) return;
+      document.getElementById("validator-init-skeleton").style.display = "none";
+      document.getElementById("validator-real-content").style.display = "block";
+      if (_valDataError) {
+        const sk = document.getElementById("val-results-skeleton");
+        if (sk) sk.style.display = "none";
+        return;
+      }
+      runValidation(true); // מסיר val-results-skeleton בסיום
+    };
+
+    _whenDataReady(() => {
+      _appReady = true;
+      _tryReveal();
+    });
+
+    _waitForPrefetch({
+      getData:  () => _prefetchedTsReport,
+      getError: () => _prefetchedTsError,
+      onData:  (data) => { _valAllData = data;       _tsReady = true; _tryReveal(); },
+      onError: (msg)  => { _valDataError = msg;      _tsReady = true; _tryReveal(); },
+    });
+  }
+</script>

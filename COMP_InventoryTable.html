@@ -1,0 +1,299 @@
+<script>
+  // -------- עמודות משותפות --------
+
+  function UI_tableCol_status() {
+    return {
+      key: "actionId",
+      label: "סטטוס",
+      minWidth: "70px",
+      render(r) {
+        const badge = appLookup("actions", r.actionId)?.badge || "";
+        const BADGE = {
+          faulty:  { color: "danger",    lbl: "תקול"  },
+          storage: { color: "secondary", lbl: "אפסנה" },
+        };
+        const { color, lbl } = BADGE[badge] || { color: "success", lbl: "פעיל" };
+        return `<span class="badge bg-${color}">${lbl}</span>`;
+      },
+      searchVal(r) {
+        const badge = appLookup("actions", r.actionId)?.badge || "";
+        return badge === appData.config.ACTION_BADGE_FAULTY ? "תקול" : badge === appData.config.ACTION_BADGE_STORAGE ? "אפסנה" : "פעיל";
+      },
+    };
+  }
+
+  // opts: { key?: string, fallbackKey?: string }
+  // key        — שם השדה ב-row שמכיל את productId (ברירת מחדל: "productId")
+  // fallbackKey — שם השדה שמשמש כ-fallback אם אין שם בקטלוג (ברירת מחדל: key)
+  function UI_tableCol_product({ key = "productId", fallbackKey } = {}) {
+    const fb = fallbackKey || key;
+    return {
+      key,
+      label: "מוצר",
+      minWidth: "140px",
+      maxWidth: "200px",
+      render: (r) => getProductDisplayName(appLookup("catalog", r[key])) || r[fb],
+      searchVal: (r) => getProductDisplayName(appLookup("catalog", r[key])) || r[fb],
+    };
+  }
+
+  // opts: { nameKey } — שם שדה pre-resolved  (למשל "teamName")
+  //    או { idKey }   — שם שדה ID לחיפוש דינמי (למשל "teamId")
+  function _makeEntityCol(listKey, label, renderTransform) {
+    return ({ nameKey, idKey } = {}) => {
+      const resolve = nameKey
+        ? (r) => r[nameKey]
+        : (r) => appLookupName(listKey, r[idKey]);
+      return {
+        key: nameKey || idKey,
+        label,
+        minWidth: "80px",
+        render: renderTransform ? (r) => renderTransform(resolve(r)) : resolve,
+        searchVal: resolve,
+      };
+    };
+  }
+
+  const UI_tableCol_team     = _makeEntityCol("teams",     "צוות",  (s) => s.replace(/\s*\([^)]*\)\s*$/, ""));
+  const UI_tableCol_location = _makeEntityCol("locations", "מיקום", null);
+
+  function UI_tableCol_qty() {
+    return { key: "qty", label: "כמות", minWidth: "60px" };
+  }
+
+  function UI_tableCol_signee() {
+    return { key: "signeeName", label: "חותם", minWidth: "80px" };
+  }
+
+  function UI_tableCol_sn() {
+    return { key: "sn", label: "מספר צ'", minWidth: "100px" };
+  }
+
+  // dateKey — שם השדה המכיל את ה-timestamp המספרי למיון (ברירת מחדל: "dateRaw")
+  function UI_tableCol_date({ dateKey = "dateRaw" } = {}) {
+    return { key: "date", label: "תאריך עדכון", minWidth: "100px", sortVal: (r) => r[dateKey] };
+  }
+
+  function UI_tableCol_confirmed() {
+    return {
+      key: "isConfirmed",
+      label: "✅",
+      minWidth: "40px",
+      render: (r) => r.isConfirmed ? '<span class="text-success fw-bold">✅</span>' : "",
+      searchVal: (r) => r.isConfirmed ? "✅" : "",
+    };
+  }
+
+  // useQty: true → סוכם r.qty (דוח מלאי), false → ספירת שורות (דוח צ')
+  function UI_computeStatusSummary(rows, { useQty = false } = {}) {
+    const val = (r) => useQty ? (r.qty || 1) : 1;
+    const getBadge = (r) => appLookup("actions", r.actionId)?.badge || "";
+    const total   = rows.reduce((s, r) => s + val(r), 0);
+    const faulty  = rows.filter(r => getBadge(r) === appData.config.ACTION_BADGE_FAULTY).reduce((s, r) => s + val(r), 0);
+    const afasna  = rows.filter(r => getBadge(r) === appData.config.ACTION_BADGE_STORAGE).reduce((s, r) => s + val(r), 0);
+    const active  = total - faulty - afasna;
+    const summary = [
+      { label: 'סה"כ', count: total,  color: "dark"    },
+      { label: "פעיל", count: active, color: "success"  },
+    ];
+    if (afasna > 0) summary.push({ label: "אפסנה", count: afasna, color: "secondary" });
+    if (faulty > 0) summary.push({ label: "תקול",  count: faulty, color: "danger"    });
+    return summary;
+  }
+
+  function UI_tableToTsv(cols, rows) {
+    const header = cols.map((c) => c.label).join("\t");
+    const body = rows.map((r) =>
+      cols.map((c) => (c.searchVal ? c.searchVal(r) : String(r[c.key] ?? ""))).join("\t")
+    ).join("\n");
+    return header + "\n" + body;
+  }
+
+  // -------- מצב פנימי לכל מופע טבלה --------
+  const _inventoryTables = {};
+
+  /**
+   * UI_renderInventoryTable — מרנדר טבלה ממוינת עם סיכום.
+   * @param {string} containerId - id של div המכיל
+   * @param {Object} opts
+   *   rows    — מערך אובייקטים שטוחים עם הנתונים
+   *   columns — [{key, label, render?}] — render(row) מחזיר HTML
+   *   summary — [{label, count, color}] — סיכום בראש הטבלה (אופציונלי)
+   */
+  function UI_renderInventoryTable(containerId, { rows, columns, summary }) {
+    _inventoryTables[containerId] = {
+      rows,
+      columns,
+      summary: summary || [],
+      sortKey: null,
+      sortDir: 1,
+      filterText: "",
+    };
+    _drawInventoryTable(containerId);
+  }
+
+  function _drawInventoryTable(containerId, filterOnly = false) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const inst = _inventoryTables[containerId];
+    const { rows, columns, summary, sortKey, sortDir, filterText } = inst;
+
+    // סינון טקסט חופשי
+    let visible = rows;
+    if (filterText) {
+      const term = filterText.toLowerCase();
+      visible = rows.filter((row) =>
+        columns.some((col) => {
+          const val = col.searchVal
+            ? String(col.searchVal(row) ?? "")
+            : String(row[col.key] ?? "");
+          return val.toLowerCase().includes(term);
+        }),
+      );
+    }
+
+    // מיון
+    if (sortKey) {
+      const sortCol = columns.find((c) => c.key === sortKey);
+      visible = [...visible].sort((a, b) => {
+        if (sortKey === "qty") {
+          return (Number(a.qty ?? 0) - Number(b.qty ?? 0)) * sortDir;
+        }
+        if (sortCol?.sortVal) {
+          const vA = sortCol.sortVal(a) ?? 0;
+          const vB = sortCol.sortVal(b) ?? 0;
+          return (vA < vB ? -1 : vA > vB ? 1 : 0) * sortDir;
+        }
+        const valA = sortCol?.searchVal
+          ? String(sortCol.searchVal(a) ?? "")
+          : String(a[sortKey] ?? "");
+        const valB = sortCol?.searchVal
+          ? String(sortCol.searchVal(b) ?? "")
+          : String(b[sortKey] ?? "");
+        return valA.localeCompare(valB, "he") * sortDir;
+      });
+    }
+
+    // שורות
+    const bodyHtml = visible.length
+      ? visible
+          .map((row) => {
+            const cells = columns.map((col) => {
+              const content = col.render ? col.render(row) : (row[col.key] ?? "");
+              const minWidthStyle = col.minWidth ? `min-width:${col.minWidth};` : "";
+              const maxWidthStyle = col.maxWidth ? `max-width:${col.maxWidth};` : "";
+              return `<td style="white-space:normal;word-break:break-word;${minWidthStyle}${maxWidthStyle}">${content}</td>`;
+            }).join("");
+            return `<tr>${cells}</tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="${columns.length}" class="text-center text-muted py-4">אין נתונים להצגה</td></tr>`;
+
+    // עדכון חלקי בסינון — tbody ומונה בלבד, שדה החיפוש לא נגוע
+    if (filterOnly) {
+      const savedScrollY = window.scrollY;
+
+      const tbody = container.querySelector("tbody");
+      if (tbody) tbody.innerHTML = bodyHtml;
+
+      const countEl = container.querySelector(".inv-table-count");
+      if (countEl) {
+        if (visible.length !== rows.length) {
+          countEl.textContent = `מציג ${visible.length} מתוך ${rows.length} שורות`;
+          countEl.style.display = "";
+        } else {
+          countEl.style.display = "none";
+        }
+      }
+
+      window.scrollTo(0, savedScrollY);
+      const searchInput = container.querySelector('input[type="text"]');
+      if (searchInput) searchInput.focus();
+      return;
+    }
+
+    // רינדור מלא (טעינה ראשונית / מיון)
+    const prevScrollable = container.querySelector(".table-responsive");
+    const savedScrollLeft = prevScrollable ? prevScrollable.scrollLeft : 0;
+
+    const colorMap = {
+      dark: "#495057",
+      success: "#198754",
+      secondary: "#6c757d",
+      danger: "#dc3545",
+      warning: "#ffc107",
+      info: "#0dcaf0",
+    };
+    const summaryHtml = summary.length
+      ? `<div style="display:grid;grid-template-columns:repeat(${summary.length},1fr);gap:8px;margin-bottom:20px;">
+          ${summary
+            .map(
+              (s) => `
+            <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:10px;padding:10px 6px;text-align:center;">
+              <div style="font-size:22px;font-weight:700;color:${colorMap[s.color] || "#495057"};line-height:1.1;">${s.count}</div>
+              <div style="font-size:11px;color:#6c757d;margin-top:3px;">${s.label}</div>
+            </div>`,
+            )
+            .join("")}
+         </div>`
+      : "";
+
+    const headerHtml = columns
+      .map((col) => {
+        const isSort = sortKey === col.key;
+        const arrow = isSort ? (sortDir === 1 ? " ↑" : " ↓") : " ⇅";
+        const minWidthStyle = col.minWidth ? `min-width:${col.minWidth};` : "";
+        const maxWidthStyle = col.maxWidth ? `max-width:${col.maxWidth};` : "";
+        return `<th style="cursor:pointer;user-select:none;white-space:nowrap;${minWidthStyle}${maxWidthStyle}" onclick="_inventoryTableSort('${containerId}','${col.key}')">${col.label}<span style="opacity:${isSort ? 1 : 0.35};">${arrow}</span></th>`;
+      })
+      .join("");
+
+    const searchHtml = UI_createSearchInput({
+      placeholder: "חיפוש בטבלה",
+      required: false,
+      className: "mb-2",
+      customInput: `_inventoryTableFilter('${containerId}', this.value)`,
+      customClear: `clearInputByComponent(this); _inventoryTableFilter('${containerId}', '')`,
+      extraAttributes: `value="${filterText}" style="height:40px;border-radius:8px;text-align:right;padding-right:12px;"`,
+    });
+
+    container.innerHTML = `
+      ${summaryHtml}
+      ${rows.length > 5 ? searchHtml : ""}
+      <div class="inv-table-count text-end text-muted x-small mt-1" style="${visible.length !== rows.length ? "" : "display:none;"}">מציג ${visible.length} מתוך ${rows.length} שורות</div>
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+          <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+            <tr>${headerHtml}</tr>
+          </thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>
+      <div style="height: 250px;"></div>
+    `;
+
+    const newScrollable = container.querySelector(".table-responsive");
+    if (newScrollable) {
+      newScrollable.scrollLeft = savedScrollLeft;
+    }
+  }
+
+  function _inventoryTableSort(containerId, key) {
+    const inst = _inventoryTables[containerId];
+    if (!inst) return;
+    if (inst.sortKey === key) inst.sortDir = -inst.sortDir;
+    else {
+      inst.sortKey = key;
+      inst.sortDir = 1;
+    }
+    _drawInventoryTable(containerId);
+  }
+
+  function _inventoryTableFilter(containerId, text) {
+    const inst = _inventoryTables[containerId];
+    if (!inst) return;
+    inst.filterText = text;
+    _drawInventoryTable(containerId, true);
+  }
+</script>

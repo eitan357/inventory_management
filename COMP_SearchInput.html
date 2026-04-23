@@ -1,0 +1,352 @@
+<!-- COMP_SearchInput.html -->
+<script>
+  function UI_createSearchInput(props) {
+    const id = props.id || "input-" + Math.random().toString(36).substr(2, 9);
+    const label = props.label || "";
+    const placeholder = props.placeholder || "";
+    const listKey = props.listKey || ""; // אם ריק, יתנהג כשדה טקסט רגיל ללא רשימה
+    const className = props.className || "";
+    const showHiddenId = props.showHiddenId || false;
+    const extraAttributes = props.extraAttributes || "";
+    const customClear = props.customClear || "clearInputByComponent";
+    const customInput = props.customInput || null; // oninput מותאם לשדות ללא listKey
+
+    // ניהול שגיאות
+    const isRequired = props.required !== false; // ברירת מחדל: שדה חובה
+    const requireSelection = props.requireSelection !== false; // ברירת מחדל: חייב לבחור מהרשימה
+    const errorMsg = props.errorMsg || (listKey ? `נא לבחור ${label} מהרשימה` : `נא להזין ${label}`);
+
+    // customClear תומך בשם פונקציה ("fnName") ובביטוי inline ("fnA(); fnB()")
+    const clearOnclick = customClear.includes("(") ? customClear : `window['${customClear}'](this)`;
+
+    const oninputAttr = listKey
+      ? `oninput="handleSearchInput(this, '${listKey}')" onclick="openDropdownIfValid(this, '${listKey}', true)" onfocus="openDropdownIfValid(this, '${listKey}')"`
+      : `oninput="${customInput ? customInput + '; toggleClearBtn(this)' : 'hideError(this); toggleClearBtn(this)'}"`;
+
+    return `
+    <div class="search-field-container ${className}" data-required="${isRequired}" data-require-selection="${requireSelection}">
+      ${label ? `<label class="x-small" for="${id}">${label}${isRequired ? ' <span class="text-danger">*</span>' : ''}</label>` : ""}
+
+      <div class="searchable-input-wrapper" style="position: relative;">
+        ${showHiddenId ? `<input type="hidden" class="prod-id" id="${id}-hidden-id">` : ""}
+        <input type="text"
+               id="${id}"
+               class="form-control"
+               placeholder="${placeholder}"
+               ${oninputAttr}
+               autocomplete="off"
+               ${extraAttributes}>
+        <span class="clear-input-btn" onclick="${clearOnclick}">&times;</span>
+        <div class="search-results"></div>
+      </div>
+
+      ${UI_fieldError('error-' + id, errorMsg)}
+    </div>
+  `;
+  }
+
+  /**
+   * _guardedSearch — מפעיל searchFn רק אם מותר לפתוח את הרשימה.
+   * ב-focus עם שגיאה פעילה: סוגר רשימות ולא פותח.
+   * ב-click (forceOpen=true) או ללא שגיאה: מפעיל את searchFn.
+   */
+  function _guardedSearch(input, searchFn, forceOpen = false) {
+    if (!forceOpen && input.classList.contains("is-invalid-field")) {
+      closeAllLists();
+      return;
+    }
+    searchFn(input);
+  }
+
+  function openDropdownIfValid(input, listKey, forceOpen = false) {
+    _guardedSearch(input, (inp) => filterList(inp, listKey), forceOpen);
+  }
+
+  //------------------- מנגנון החיפוש המרכזי -------------------------
+
+  function matchesCatalogSearch(catalogItem, searchTerm) {
+    const term = searchTerm.toLowerCase();
+    const nameMatch = (catalogItem.name || "").toLowerCase().includes(term);
+    const nickMatch = catalogItem.nickname ? catalogItem.nickname.toLowerCase().includes(term) : false;
+    const pnMatch = catalogItem.pn ? catalogItem.pn.toLowerCase().includes(term) : false;
+    const displayMatch = getProductDisplayName(catalogItem).toLowerCase().includes(term);
+    return nameMatch || nickMatch || pnMatch || displayMatch;
+  }
+
+  function filterList(input, listKey) {
+    closeAllLists();
+    const clearBtn = input.parentElement.querySelector(".clear-input-btn");
+    if (clearBtn)
+      clearBtn.style.display = input.value.length > 0 ? "block" : "none";
+
+    const searchTerm = input.value.toString().toLowerCase().trim();
+    const resultsDiv = input.parentElement.querySelector(".search-results");
+    _openDropdown(resultsDiv, input);
+
+    const filtered = appData[listKey].filter((item) => {
+const searchTerm = input.value.toString().toLowerCase().trim();
+    const nameMatch = item.name.toLowerCase().includes(searchTerm);
+
+    // לוגיקה ספציפית לסטטוסים (Actions) בעמוד הסטטוס
+    if (listKey === "actions") {
+        const isStatusPage = document.getElementById("status-page")?.classList.contains("active");
+        if (isStatusPage) {
+            const action = appData.actions.find(a => a.id === item.id);
+            if (action?.statusPage === "hide") return false;
+        }
+    }
+      if (listKey === "catalog") {
+        return matchesCatalogSearch(item, searchTerm);
+      }
+
+      if (listKey === "signees") {
+        const idMatch = item.signeeId
+          ? item.signeeId.toString().includes(searchTerm)
+          : false;
+        return nameMatch || idMatch;
+      }
+
+      return nameMatch;
+    });
+
+    if (filtered.length === 0) {
+      resultsDiv.innerHTML =
+        '<div class="search-item text-muted">אין תוצאות</div>';
+    } else {
+      resultsDiv.innerHTML = filtered
+        .map((item) => {
+          const safeName = _escapeAttr(item.name);
+
+          if (listKey === "catalog") {
+            const displayName = getProductDisplayName(item);
+            const highlightedName = highlightText(displayName, searchTerm);
+            const pnDisplay = item.pn
+              ? `<div style="font-size: 0.85em; color: #666;">מק"ט: ${item.pn}</div>`
+              : "";
+            return `
+                    <div class="search-item" data-name="${safeName}" onclick="selectItem(this, this.getAttribute('data-name'), '${item.type || ""}', '${listKey}', '${item.id}')">
+                        <div>${displayName}</div>
+                        ${pnDisplay}
+                    </div>`;
+          } else if (listKey === "signees") {
+            return `<div class="search-item" data-name="${safeName}" onclick="selectItem(this, this.getAttribute('data-name'), '${item.type || ""}', '${listKey}', '${item.id}')">
+                    ${item.name} <small class="text-muted">(${item.signeeId})</small>
+                </div>`;
+          } else {
+            return `<div class="search-item" data-name="${safeName}" onclick="selectItem(this, this.getAttribute('data-name'), '${item.type || ""}', '${listKey}', '${item.id}')">
+                    ${item.name}
+                </div>`;
+          }
+        })
+        .join("");
+    }
+  }
+
+  function handleSearchInput(input, listKey) {
+    closeAllLists();
+    const wrapper = input.closest(".searchable-input-wrapper");
+    if (listKey === "catalog") {
+      const hiddenProd = wrapper.querySelector(".prod-id");
+      if (hiddenProd) hiddenProd.value = "";
+      else delete input.dataset.selectedId;
+    } else {
+      delete input.dataset.selectedId;
+    }
+
+    filterList(input, listKey);
+    toggleClearBtn(input);
+    hideError(input);
+  }
+
+  function _getWrapperFromSearchItem(element) {
+    const resultsDiv = element.closest(".search-results");
+    return (resultsDiv && resultsDiv._originalParent) || element.closest(".searchable-input-wrapper");
+  }
+
+  function selectItem(element, name, type, listKey, id) {
+    const wrapper = _getWrapperFromSearchItem(element);
+    const input = wrapper.querySelector(".form-control");
+
+    if (listKey === "catalog") {
+      const hiddenProd = wrapper.querySelector(".prod-id");
+      if (hiddenProd) hiddenProd.value = id;
+      else input.dataset.selectedId = id;
+    } else {
+      input.dataset.selectedId = id;
+    }
+
+    input.value = name;
+    const clearBtn = wrapper.querySelector(".clear-input-btn");
+    if (clearBtn) clearBtn.style.display = "block";
+
+    hideError(input);
+    closeAllLists();
+
+    // --- תיקון מנגנון חתימה (Signees) ---
+    if (listKey === "signees") {
+      const signeeData = appLookup("signees", id);
+      if (signeeData) {
+        const isStatusPage = document.getElementById("status-page")?.classList.contains("active");
+        const idInputId = isStatusPage ? "status-signee-id" : "signee-id";
+
+        const idInput = document.getElementById(idInputId);
+        if (idInput) {
+          idInput.value = signeeData.signeeId;
+          const idClearBtn = idInput.parentElement.querySelector(".clear-input-btn");
+          if (idClearBtn) idClearBtn.style.display = "block";
+          hideError(idInput);
+          idInput.focus();
+        }
+      }
+    }
+    // --- לוגיקה לבחירת מוצר מקטלוג ---
+    else if (listKey === "catalog") {
+      const selectedProd = appLookup("catalog", id);
+      input.value = getProductDisplayName(selectedProd);
+
+      const row = wrapper.closest(".item-row");
+      if (row) {
+        const isTs = type.trim() === appData.config.CATALOG_TYPE_SN;
+        toggleSnQtyContainers(row, isTs);
+        if (isTs) {
+          const snInput = row.querySelector(".prod-sn") || row.querySelector(".stat-sn-input");
+          if (snInput) snInput.focus();
+        } else {
+          const qtyInput = row.querySelector(".prod-qty") || row.querySelector(".stat-qty-input");
+          if (qtyInput) qtyInput.focus();
+        }
+      }
+
+      const isReportPage = !!wrapper.closest("#inventory-page, #validator-page");
+      if (!isReportPage && selectedProd && selectedProd.related && selectedProd.related.trim() !== "") {
+        showRelatedModal(selectedProd);
+      }
+    }
+    // --- לוגיקה למעבר בין שדות ---
+    else if (input.id === "dest-team") {
+      document.getElementById("location")?.focus();
+    } else if (input.id === "location") {
+      document.querySelector(".prod-name")?.focus();
+    } else if (input.id === "status-action-global") {
+      const firstProdInput = document.querySelector("#status-items-container .item-row input[type='text']");
+      if (firstProdInput) firstProdInput.focus();
+    } else if (input.id === "status-dest-team") {
+      document.getElementById("status-location")?.focus();
+    } else if (input.id === "status-location") {
+      document.getElementById("status-signee-name")?.focus();
+    }
+
+    if (input.id === "status-team") {
+      loadTeamInventory(id);
+    }
+
+    if (input.id === "inv-filter-value") {
+      loadInventoryReport(id);
+    }
+
+    if (input.id === "val-team-filter") {
+      runValidation(true);
+    }
+
+    if (input.id === "status-loc-filter") {
+      if (typeof refreshAllStatusQtyRanges === "function") {
+        refreshAllStatusQtyRanges();
+      }
+      document.getElementById("status-action-global")?.focus();
+    }
+  }
+
+  function closeAllLists() {
+    document.querySelectorAll(".search-results").forEach((d) => {
+      d.style.display = "none";
+      d.style.position = "";
+      if (d._originalParent) {
+        d._originalParent.appendChild(d);
+        delete d._originalParent;
+      }
+    });
+  }
+
+  /**
+   * _openDropdown — פותח תפריט חיפוש.
+   * מעביר את resultsDiv ישירות ל-body (portal) עם position:absolute ומיקום
+   * מחושב ביחס למסמך (rect + scrollY). כך הרשימה נוסעת עם הדף טבעית
+   * ואין צורך ב-scroll listener. מניעת בעיית הרקע הלבן: הרשימה לא מרחיבה
+   * שום container מקונן — היא ילד ישיר של body.
+   */
+  function _openDropdown(resultsDiv, input) {
+    if (!resultsDiv._originalParent) {
+      resultsDiv._originalParent = resultsDiv.parentElement;
+    }
+    document.body.appendChild(resultsDiv);
+
+    const rect = input.getBoundingClientRect();
+    resultsDiv.style.position = "absolute";
+    resultsDiv.style.left = "";
+    resultsDiv.style.top = (rect.bottom + window.scrollY) + "px";
+    resultsDiv.style.right = (window.innerWidth - rect.right) + "px";
+    resultsDiv.style.width = rect.width + "px";
+    resultsDiv.style.display = "block";
+  }
+
+  const highlightText = (text, term) => {
+    if (!term) return text;
+    const regex = new RegExp(`(${term})`, "gi");
+    return text.replace(
+      regex,
+      '<mark style="padding:0; background: #fff3cd;">$1</mark>',
+    );
+  };
+
+  function toggleClearBtn(input) {
+    const btn = input.parentElement.querySelector(".clear-input-btn");
+    if (btn) btn.style.display = input.value.length > 0 ? "block" : "none";
+  }
+
+  function clearInputByComponent(btn) {
+    const wrapper = btn.closest(".searchable-input-wrapper");
+    const input = wrapper.querySelector(".form-control");
+    const hiddenId = wrapper.querySelector(".prod-id");
+
+    if (input.type === "number" || input.classList.contains("prod-qty")) {
+      input.value = "1";
+    } else {
+      input.value = "";
+    }
+
+    if (hiddenId) hiddenId.value = "";
+    delete input.dataset.selectedId;
+    delete input.dataset.rowId;
+
+    btn.style.display = "none";
+    hideError(input);
+    input.focus();
+  }
+
+  function _getOpenDropdownWrapper() {
+    const open = [...document.querySelectorAll(".search-results")].find(d => d.style.display === "block");
+    if (!open) return null;
+    return open._originalParent || open.closest(".searchable-input-wrapper");
+  }
+
+  document.addEventListener("click", function (e) {
+    if (
+      e.target.closest(".custom-modal-overlay.modal-visible") ||
+      e.target.closest(".custom-modal") ||
+      e.target.closest(".search-results")
+    ) {
+      return;
+    }
+    const openWrapper = _getOpenDropdownWrapper();
+    if (openWrapper && e.target.closest(".searchable-input-wrapper") !== openWrapper) {
+      closeAllLists();
+    }
+  });
+
+  document.addEventListener("focusin", function (e) {
+    const openWrapper = _getOpenDropdownWrapper();
+    if (openWrapper && e.target.closest(".searchable-input-wrapper") !== openWrapper) {
+      closeAllLists();
+    }
+  });
+</script>

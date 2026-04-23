@@ -1,0 +1,106 @@
+<script>
+  /**
+   * JS_HitboxFix — פתרון מרכזי לבעיית Hitbox Displacement.
+   *
+   * הבעיה: לאחר שינוי display (none ↔ block/flex) ב-WebView (Android ו-iOS),
+   * הדפדפן לא מחשב מחדש את אזורי הלחיצה (bounding rects).
+   * התוצאה: הדף "קפוא" — לחיצות לא מגיבות עד שהמשתמש גולל ידנית.
+   *
+   * הפתרון: קריאה ל-window.scrollTo עם אותה מיקום — מאלצת חישוב מחדש
+   * של כל ה-bounding rects ללא שינוי גלוי למשתמש.
+   *
+   * שימוש בעמודים/רכיבים חדשים:
+   *   - אם השינוי נעשה בפונקציה גלובלית: הוסף את שמה ל-DOMContentLoaded למטה.
+   *   - אם השינוי נעשה בקוד inline: קרא ל-fixHitbox() מיד אחריו.
+   */
+
+  /**
+   * fixHitbox — כפה על הדפדפן חישוב מחדש של אזורי הלחיצה.
+   * requestAnimationFrame מבטיח שהקריאה תרוץ רק אחרי שהדפדפן סיים
+   * לצייר את הפריים הנוכחי — כולל כל שינויי ה-DOM שבוצעו לפניה.
+   */
+  function fixHitbox() {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: window.scrollY, behavior: "instant" });
+      });
+    });
+  }
+
+  /**
+   * _wrapWithHitboxFix — עוטפת פונקציה גלובלית קיימת כך שתקרא ל-fixHitbox אחרי כל הרצה.
+   * תומכת גם בפונקציות async (ממתינה לסיום ה-Promise לפני הקריאה).
+   */
+  function _wrapWithHitboxFix(fnName) {
+    const original = window[fnName];
+    if (typeof original !== "function") {
+      console.warn("[HitboxFix] פונקציה לא נמצאה:", fnName);
+      return;
+    }
+    window[fnName] = function (...args) {
+      const result = original.apply(this, args);
+      if (result && typeof result.then === "function") {
+        return result.then((val) => {
+          fixHitbox();
+          return val;
+        });
+      }
+      fixHitbox();
+      return result;
+    };
+  }
+
+  // -------------------------------------------------------
+  // עטיפת כל הפונקציות שמבצעות שינוי display באפליקציה
+  // -------------------------------------------------------
+  document.addEventListener("DOMContentLoaded", function () {
+    // ניווט בין עמודים
+    _wrapWithHitboxFix("showPage");
+
+    // מודלים (openModal קורא ל-_doCloseModal בפנים — עוטפים את שתיהן)
+    _wrapWithHitboxFix("openModal");
+    _wrapWithHitboxFix("_doCloseModal");
+
+    // שכבת טעינה
+    _wrapWithHitboxFix("showLoading");
+    _wrapWithHitboxFix("hideLoading");
+
+    // עמוד סטטוס — הצגת שדות צ'/כמות ומעבר בין skeleton לרשימת מלאי
+    _wrapWithHitboxFix("selectStatusProduct");
+    _wrapWithHitboxFix("loadTeamInventory");
+    _wrapWithHitboxFix("clearStatusTeam"); // מסתיר את section המלאי
+    _wrapWithHitboxFix("clearStatusRow"); // מחליף hidden-field בשורת מוצר
+    _wrapWithHitboxFix("resetStatusForm"); // מסתיר inventory-section (לחצן reset)
+
+    // עמוד ניפוק — הצגת שדות צ'/כמות
+    _wrapWithHitboxFix("addPopulatedRow");
+    _wrapWithHitboxFix("selectItem"); // בחירת מוצר מקטלוג — מחליף hidden-field בשורה
+
+    // עמוד ולידציה — הצגת תוצאות הדוח וניקוי
+    _wrapWithHitboxFix("runValidation");
+    _wrapWithHitboxFix("resetValidator");
+  });
+
+  // -------------------------------------------------------
+  // מאזין לפתיחה/סגירה של מקלדת וירטואלית — מאלץ חישוב מחדש של hitboxes
+  // -------------------------------------------------------
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", fixHitbox);
+  }
+
+  // -------------------------------------------------------
+  // מאזין לתום גלילה
+  // ב-WebView, גלילה דרך רשימות DOM גדולות עלולה לגרום לציור
+  // פריימים נוספים שמזיזים hitboxes שוב. הפתרון: הפעל fixHitbox
+  // 250ms אחרי שהגלילה נעצרת (debounce).
+  // -------------------------------------------------------
+  let _hitboxScrollTimer;
+  window.addEventListener(
+    "scroll",
+    function () {
+      clearTimeout(_hitboxScrollTimer);
+      _hitboxScrollTimer = setTimeout(fixHitbox, 250);
+    },
+    { passive: true }
+  );
+</script>

@@ -1,0 +1,59 @@
+<script>
+  /**
+   * UI_wrapModal — מחזיר מחרוזת HTML של עטיפת מודאל (overlay + תיבה)
+   * @param {object} options
+   *   id        {string}  - id של ה-overlay
+   *   innerHtml {string}  - תוכן תיבת המודאל
+   *   maxWidth  {string}  - רוחב מקסימלי לתיבה, לדוגמה "450px"
+   */
+  function UI_wrapModal({ id, innerHtml, maxWidth }) {
+    const widthStyle = maxWidth ? ` max-width: ${maxWidth};` : '';
+    return `
+      <div id="${id}" class="custom-modal-overlay">
+        <div class="custom-modal" style="${widthStyle}">
+          ${innerHtml}
+        </div>
+      </div>`;
+  }
+
+  // ----------------------------------- ניהול מודאלים -----------------------------------
+
+  /** openModal — מציג מודאל לפי מזהה */
+  function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('modal-visible');
+    document.body.classList.add('modal-open');
+    document.documentElement.classList.add('modal-open');
+    const firstBtn = modal.querySelector('button');
+    if (firstBtn) firstBtn.focus();
+  }
+
+  /**
+   * closeModal — מסתיר מודאל לפי מזהה.
+   * ללא ארגומנטים — סוגר את מודאל ההצלחה ומנקה את תוכן הקבלה.
+   */
+  function closeModal(modalId) {
+    if (modalId === undefined) {
+      _doCloseModal('success-modal');
+      const receipt = document.getElementById('receipt-content');
+      if (receipt) receipt.innerHTML = '';
+      return;
+    }
+    _doCloseModal(modalId);
+    if (modalId === 'related-modal') {
+      const itemsList = document.getElementById('related-items-list');
+      if (itemsList) itemsList.innerHTML = '';
+    }
+  }
+
+  function _doCloseModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.classList.remove('modal-visible');
+    const openModals = document.querySelectorAll('.custom-modal-overlay.modal-visible');
+    if (openModals.length === 0) {
+      document.body.classList.remove('modal-open');
+      document.documentElement.classList.remove('modal-open');
+    }
+  }
+</script>

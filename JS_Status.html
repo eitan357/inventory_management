@@ -1,0 +1,647 @@
+<script>
+  //----------------------------------- ניהול מלאי צוות -----------------------------------
+
+  let currentTeamInventory = { products: [], sns: {} };
+
+  function showStatusPage() {
+    showPage("status-page");
+
+    try {
+      const actionInput = document.getElementById("status-action-global");
+      if (actionInput && !actionInput.dataset.selectedId) {
+        actionInput.value = "";
+        const wrapper = actionInput.closest(".searchable-input-wrapper");
+        if (wrapper) {
+          const btn = wrapper.querySelector(".clear-input-btn");
+          if (btn) btn.style.display = "none";
+        }
+      }
+    } catch (e) { /* noop */ }
+  }
+
+  // פונקציה שנקראת ברגע שנבחר צוות בעמוד הסטטוס
+  // יש להוסיף קריאה אליה בתוך selectItem עבור עמוד הסטטוס
+  async function loadTeamInventory(teamId) {
+    if (!teamId) return;
+    if (document.activeElement) document.activeElement.blur();
+
+    const section = document.getElementById("status-inventory-section");
+    const skeleton = document.getElementById("status-skeleton");
+    const teamInput = document.getElementById("status-team");
+
+    section.style.display = "none";
+    skeleton.style.display = "block";
+
+    try {
+      const inventoryData = await _callServerAsync(r => r.getTeamInventory(teamId));
+
+      if (
+        !teamInput.dataset.selectedId ||
+        teamInput.dataset.selectedId !== teamId
+      ) {
+        skeleton.style.display = "none";
+        return;
+      }
+
+      currentTeamInventory = inventoryData;
+      skeleton.style.display = "none";
+
+      const emptyState = document.getElementById("status-empty-state");
+
+      if (inventoryData.products.length === 0) {
+        emptyState.style.display = "block";
+        section.style.display = "none";
+        document.getElementById("status-loc-filter-card").style.display = "none";
+      } else {
+        emptyState.style.display = "none";
+        section.style.display = "block";
+
+        document.getElementById("status-loc-filter-card").style.display = "block";
+        appData.status_locations = inventoryData.locations.map(
+          (loc) => appLookup("locations", loc.id) || { id: loc.id, name: loc.id },
+        );
+
+        document.getElementById("status-items-container").innerHTML = "";
+        addStatusItemRow();
+      }
+    } catch (e) {
+      alert("שגיאה בשליפת מלאי: " + e.message);
+      skeleton.style.display = "none";
+    }
+  }
+
+  //----------------------------------------- חיפוש ובחירה במלאי ------------------------------------
+  function handleStatusSearch(input) {
+    closeAllLists();
+    toggleClearBtn(input);
+    hideError(input);
+
+    const searchTerm = input.value.toLowerCase().trim();
+    const locFilterId =
+      document.getElementById("status-loc-filter").dataset.selectedId;
+    const resultsDiv = input.parentElement.querySelector(".search-results");
+    _openDropdown(resultsDiv, input);
+
+    const filtered = currentTeamInventory.products.filter((p) => {
+      const catalogItem = appLookup("catalog", p.id) || {};
+      const locMatch = !locFilterId || p.locId === locFilterId;
+      return matchesCatalogSearch(catalogItem, searchTerm) && locMatch;
+    });
+
+    if (filtered.length === 0) {
+      resultsDiv.innerHTML =
+        '<div class="search-item text-muted">אין במלאי (נסה לשנות מיקום)</div>';
+    } else {
+      const seen = new Set();
+      resultsDiv.innerHTML = filtered
+        .map((p) => {
+          if (seen.has(p.id)) return "";
+          seen.add(p.id);
+          const catalogItem = appLookup("catalog", p.id) || {};
+          const pName = catalogItem.name || p.id;
+          const displayName = getProductDisplayName(catalogItem) || pName;
+
+          // יצירת מחרוזת בטוחה לשימוש ב-HTML
+          const safeName = _escapeAttr(pName);
+
+          return `
+                  <div class="search-item" data-name="${safeName}" onclick="selectStatusProduct(this, '${p.id}', this.getAttribute('data-name'), '${p.type}')">
+                      <div>${displayName}</div>
+                  </div>`;
+        })
+        .join("");
+    }
+  }
+
+  function getStatusProdNameInput(row) {
+    // ה-input הטקסט של המוצר נוצר עם id שמתחיל ב-"stat-prod-"
+    return (
+      row.querySelector('input[type="text"][id^="stat-prod-"]') ||
+      row.querySelector(".stat-prod-name")
+    );
+  }
+
+  function getStatusProdIdInput(row) {
+    // ה-hidden id נוצר ע"י UI_createSearchInput עם class="prod-id"
+    return row.querySelector(".prod-id") || row.querySelector(".stat-prod-id");
+  }
+
+  function selectStatusProduct(element, id, name, type) {
+    const wrapper = _getWrapperFromSearchItem(element);
+    const row = wrapper ? wrapper.closest(".item-row") : null;
+
+    // עדכון ה-ID הנסתר (חשוב לוולידציה)
+    const hiddenIdInput = getStatusProdIdInput(row);
+    if (hiddenIdInput) hiddenIdInput.value = id;
+
+    const catalogItem = appLookup("catalog", id);
+    const combinedName = catalogItem
+      ? getProductDisplayName(catalogItem)
+      : name;
+    const prodNameInput = getStatusProdNameInput(row);
+    if (prodNameInput) prodNameInput.value = combinedName;
+
+    const isTs = type === appData.config.CATALOG_TYPE_SN;
+    toggleSnQtyContainers(row, isTs);
+    if (isTs) {
+      const snInput = row.querySelector(".stat-sn-input");
+      if (snInput) { snInput.value = ""; delete snInput.dataset.rowId; }
+    } else {
+      updateQtyRangeForRow(row);
+    }
+
+    closeAllLists();
+    if (prodNameInput) toggleClearBtn(prodNameInput);
+    if (prodNameInput) hideError(prodNameInput);
+
+    if (catalogItem && catalogItem.related) showRelatedModal(catalogItem);
+  }
+
+  //------------------------------------ ניהול שורות ----------------------------------
+  function addStatusItemRow() {
+    const container = document.getElementById("status-items-container");
+    const errorMsg = container?.nextElementSibling?.querySelector(".items-count-error");
+    if (errorMsg) errorMsg.style.display = "none";
+
+    const rowId = "stat-row-" + Date.now();
+    const prodInputHTML = UI_createSearchInput({
+      id: "stat-prod-" + rowId,
+      label: "שם מוצר מהמלאי",
+      placeholder: "חפש במלאי הצוות",
+      listKey: "catalog",
+      showHiddenId: true,
+      extraAttributes: `oninput="handleStatusSearch(this)" onclick="handleStatusSearch(this)"`,
+      errorMsg: "נא לבחור מוצר מהרשימה",
+    });
+
+    const div = UI_createItemRow({
+      rowId,
+      removeFn: "removeItemRow",
+      gutter: "g-2",
+      innerHTML: `
+        <div class="col-12">
+            ${prodInputHTML}
+            ${UI_fieldError(null, "מוצר זה כבר מופיע בטופס", "prod-duplicate-msg")}
+        </div>
+
+        <div class="col-12 stat-sn-container hidden-field">
+            ${UI_fieldError(null, "מספר צ' זה כבר מופיע בטופס", "sn-duplicate-msg")}
+            <div class="search-field-container">
+                <label class="x-small">מספר צ' (מתוך המלאי)</label>
+                <div class="searchable-input-wrapper">
+                    <input type="text" id="stat-sn-${rowId}" class="form-control stat-sn-input" placeholder="חפש מספר צ'..."
+                           oninput="handleSnSearch(this)" onclick="handleSnSearch(this)" onfocus="handleSnSearch(this)" autocomplete="off">
+                    <span class="clear-input-btn" onclick="clearSnInput(this)">&times;</span>
+                    <div class="search-results"></div>
+                </div>
+                ${UI_fieldError(null, "נא לבחור מספר צ' מהרשימה")}
+            </div>
+        </div>
+
+        <div class="col-12 stat-qty-container search-field-container" data-required="true">
+            <label class="x-small">
+              כמות <span class="stock-range-label" style="margin-right:3px; font-weight:bold; color:#0d6efd;"></span>
+            </label>
+            <div class="searchable-input-wrapper">
+                <input type="number"
+                       id="stat-qty-${rowId}"
+                       class="form-control stat-qty-input"
+                       value="1" min="1"
+                       inputmode="numeric"
+                       onfocus="this.select()"
+                       oninput="hideError(this)">
+            </div>
+            ${UI_fieldError("error-stat-qty-" + rowId, "נא להזין כמות תקינה")}
+        </div>
+      `,
+    });
+    container.appendChild(div);
+
+    // Override event handlers set by UI_createSearchInput (listKey causes oninput="handleSearchInput..." to be set first,
+    // and HTML first-attribute-wins means extraAttributes oninput is ignored).
+    // Setting DOM properties overrides HTML attributes.
+    const textInput = div.querySelector(`#stat-prod-${rowId}`);
+    if (textInput) {
+      textInput.oninput = function () { handleStatusSearch(this); };
+      textInput.onclick = function () { _guardedSearch(this, handleStatusSearch, true); };
+      textInput.onfocus = function () { _guardedSearch(this, handleStatusSearch); };
+    }
+  }
+
+  /**
+   * פונקציית דיבאג מקיפה לבדיקת בעיית הכמויות בסטטוס
+   */
+  function updateQtyRangeForRow(row) {
+    const prodIdInput = row.querySelector(".prod-id"); // זה ה-ID הנסתר מהקומפוננטה
+    const qtyInput = row.querySelector(".stat-qty-input");
+    const qtyLabel = row.querySelector(".stock-range-label");
+
+    if (!prodIdInput || !qtyInput || !currentTeamInventory.rowIds) return;
+
+    const productId = prodIdInput.value;
+    if (!productId) return;
+
+    const locFilter = document.getElementById("status-loc-filter");
+    const locFilterId = locFilter ? locFilter.dataset.selectedId : null;
+
+    let maxAvailable = 0;
+    const allKeys = Object.keys(currentTeamInventory.rowIds);
+
+    // חישוב המלאי: אם יש פילטר מיקום - לוקח רק אותו. אם אין - סוכם את כל המיקומים של המוצר.
+    allKeys.forEach((key) => {
+      const [keyPId, keyLocId] = key.split("_");
+      if (keyPId === productId) {
+        if (!locFilterId || keyLocId === locFilterId) {
+          maxAvailable += currentTeamInventory.rowIds[key].length;
+        }
+      }
+    });
+
+    // עדכון ה-UI
+    qtyInput.max = maxAvailable; // חשוב לוולידציה
+    if (qtyLabel) {
+      qtyLabel.innerText =
+        maxAvailable > 0 ? `(1-${maxAvailable})` : `(אין מלאי זמין)`;
+    }
+
+    // התאמה של הערך לשורת הקלט אם הוא כרגע חורג מהמקסימום
+    qtyInput.disabled = maxAvailable === 0;
+    const currentVal = parseInt(qtyInput.value, 10);
+    if (!Number.isFinite(currentVal) || currentVal < 1) {
+      qtyInput.value = maxAvailable > 0 ? 1 : 1;
+    } else if (maxAvailable > 0 && currentVal > maxAvailable) {
+      qtyInput.value = maxAvailable;
+    }
+  }
+
+  // פונקציה חדשה: רענון כל השורות (נקרא לה כשמשנים פילטר מיקום)
+  function refreshAllStatusQtyRanges() {
+    const rows = document.querySelectorAll("#status-items-container .item-row");
+    rows.forEach((row) => {
+      const qtyContainer = row.querySelector(".stat-qty-container");
+      if (qtyContainer && !qtyContainer.classList.contains("hidden-field")) {
+        updateQtyRangeForRow(row);
+      }
+    });
+  }
+  //------------------------------------- שליחה ------------------------------------
+
+  async function handleStatusSubmit() {
+    const btn = document.getElementById("submit-status-btn");
+    btn.disabled = true;
+
+    try {
+      clearAllErrors();
+      let valid = true;
+      let firstErrorEl = null;
+
+      const actionInput = document.getElementById("status-action-global");
+      const sourceTeam = document.getElementById("status-team");
+      const destTeam = document.getElementById("status-dest-team");
+      const location = document.getElementById("status-location");
+      const locFilter = document.getElementById("status-loc-filter");
+      const locFilterId = locFilter ? locFilter.dataset.selectedId : null;
+      const sName = document.getElementById("status-signee-name");
+      const sId = document.getElementById("status-signee-id");
+
+      const reportError = (id, el) => {
+        const errDiv = document.getElementById("error-" + id);
+        if (el) el.classList.add("is-invalid-field");
+        if (errDiv) errDiv.style.display = "block";
+        valid = false;
+        if (!firstErrorEl) firstErrorEl = el;
+      };
+
+      // ולידציה בסיסית
+      const hasProducts = validateHasProducts("status-items-container");
+      const isFormValid = validateContainerFields("status-page");
+      if (!hasProducts || !isFormValid) return;
+
+      if (!validateNoDuplicateProducts("status-items-container")) return;
+      if (!validateNoDuplicateSns("status-items-container")) return;
+
+      const items = [];
+      const rows = document.querySelectorAll(
+        "#status-items-container .item-row",
+      );
+
+      rows.forEach((row) => {
+        const pIdInput = getStatusProdIdInput(row);
+        const pId = pIdInput ? pIdInput.value : "";
+        const pInput = getStatusProdNameInput(row);
+        const isTs = !row
+          .querySelector(".stat-sn-container")
+          .classList.contains("hidden-field");
+
+        if (!pId) {
+          // שורה ריקה — מדולגת (validateHasProducts כבר וידא שיש לפחות מוצר אחד)
+        } else if (isTs) {
+          const snInput = row.querySelector(".stat-sn-input");
+          if (!snInput.dataset.rowId) {
+            setFieldError(snInput.id);
+            valid = false;
+          } else {
+            items.push({
+              productId: pId,
+              productName: pInput ? pInput.value : "",
+              sn: snInput.value,
+              qty: 1,
+              isTs: true,
+              closeOldRowId: snInput.dataset.rowId,
+            });
+          }
+        } else {
+          const qtyInput = row.querySelector(".stat-qty-input");
+          const val = parseInt(qtyInput.value) || 0;
+
+          // מציאת השורות הרלוונטיות במלאי
+          const relevantKeys = Object.keys(currentTeamInventory.rowIds).filter(
+            (key) => {
+              const [keyPId, keyLocId] = key.split("_");
+              return (
+                keyPId === pId && (!locFilterId || keyLocId === locFilterId)
+              );
+            },
+          );
+
+          const allAvailableIds = relevantKeys.flatMap(
+            (k) => currentTeamInventory.rowIds[k],
+          );
+          const maxAvailable = allAvailableIds.length;
+
+          if (val < 1 || val > maxAvailable) {
+            const errorDiv = document.getElementById(`error-${qtyInput.id}`);
+            if (errorDiv) {
+              // כאן העדכון הדינמי של הודעת השגיאה
+              errorDiv.innerText =
+                val > maxAvailable
+                  ? `נא להזין כמות בין 1 ל-${maxAvailable}`
+                  : `נא להזין כמות בין 1 ל-${maxAvailable}`;
+            }
+            setFieldError(qtyInput.id);
+            valid = false;
+          } else {
+            items.push({
+              productId: pId,
+              productName: pInput ? pInput.value : "",
+              isTs: false,
+              qty: val,
+              closeOldRowIds: allAvailableIds.slice(0, val),
+            });
+          }
+        }
+      });
+
+      if (!valid) {
+        if (firstErrorEl)
+          firstErrorEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
+      showLoading("מעדכן נתונים");
+
+      const formData = {
+        action: actionInput.dataset.selectedId,
+        actionName: actionInput.value,
+        teamId: destTeam.dataset.selectedId,
+        teamName: destTeam.value,
+        sourceTeamName: sourceTeam.value,
+        locationId: location.dataset.selectedId,
+        locationName: location.value,
+        signeeName: sName.value,
+        signeeID: sId.value,
+        items: items,
+        issuerName: appData.user.name,
+        issuerId: appData.user.id,
+        mainTeamId: appData.teams.find(t => t.role === appData.config.TEAM_ROLE_MAIN)?.id || "",
+      };
+
+      await _callServerAsync(r => r.validateAndSave(formData));
+
+      hideLoading();
+      showSuccessModal({
+        title: "העדכון בוצע בהצלחה!",
+        metaRows: [
+          [{ label: "סוג פעולה", value: formData.actionName }],
+          [
+            { label: "מצוות", value: formData.sourceTeamName },
+            { label: "אל", value: formData.teamName + " (" + formData.locationName + ")" },
+            { label: "חתימת מקבל", value: formData.signeeName },
+          ],
+        ],
+        items: formData.items,
+      });
+      resetStatusForm();
+      showPage("home-page");
+    } catch (e) {
+      hideLoading();
+      alert("שגיאה: " + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  //---------------------------------------- איפוס ---------------------------------
+  // ניקוי טופס הסטטוס לחלוטין
+  function resetStatusForm() {
+    clearAllFieldsInContainer("status-page");
+
+    document.getElementById("status-inventory-section").style.display = "none";
+    document.getElementById("status-loc-filter-card").style.display = "none";
+    document.getElementById("status-empty-state").style.display = "none";
+    document.getElementById("status-items-container").innerHTML = "";
+
+    _resetTeamInventory();
+  }
+
+  function _resetTeamInventory() {
+    currentTeamInventory = { products: [], sns: {}, rowIds: {} };
+  }
+
+  // ניקוי ספציפי של שדה הצוות בעמוד סטטוס
+  function clearStatusTeam(btn) {
+    clearInputByComponent(btn);
+    const inventorySection = document.getElementById("status-inventory-section");
+    if (inventorySection) inventorySection.style.display = "none";
+
+    document.getElementById("status-items-container").innerHTML = "";
+    document.getElementById("status-loc-filter-card").style.display = "none";
+    document.getElementById("status-empty-state").style.display = "none";
+    _resetTeamInventory();
+  }
+
+  function clearStatusLocFilter(btn) {
+    clearInputByComponent(btn);
+    closeAllLists();
+    refreshAllStatusQtyRanges();
+  }
+
+  // ניקוי שורת מוצר ספציפית בעמוד סטטוס
+  function clearStatusRow(btn) {
+    const row = btn.closest(".item-row");
+    const input = getStatusProdNameInput(row);
+    const idInput = getStatusProdIdInput(row);
+
+    if (input) input.value = "";
+    if (idInput) idInput.value = "";
+    btn.style.display = "none";
+
+    // החזרת השורה למצב התחלתי (הסתרת מספר צ')
+    row.querySelector(".stat-sn-container").classList.add("hidden-field");
+    row.querySelector(".stat-qty-container").classList.remove("hidden-field");
+
+    if (input) {
+      input.focus();
+      hideError(input);
+    }
+  }
+
+  function handleSnSearch(input) {
+    closeAllLists();
+    const row = input.closest(".item-row");
+    const productIdInput = getStatusProdIdInput(row);
+    const productId = productIdInput ? productIdInput.value : "";
+    const searchTerm = input.value.toLowerCase().trim();
+    const resultsDiv = input.parentElement.querySelector(".search-results");
+
+    // ניקוי ה-dataset כדי לוודא שבוחרים מחדש
+    delete input.dataset.rowId;
+    toggleClearBtn(input);
+    hideError(input);
+
+    const locFilterEl = document.getElementById("status-loc-filter");
+    const locFilterId = locFilterEl ? locFilterEl.dataset.selectedId : null;
+    const sns = Object.keys(currentTeamInventory.sns || {})
+      .filter((key) => {
+        const sep = key.indexOf("_");
+        return (
+          key.substring(0, sep) === productId &&
+          (!locFilterId || key.substring(sep + 1) === locFilterId)
+        );
+      })
+      .flatMap((key) => currentTeamInventory.sns[key]);
+    const filtered = sns.filter((s) => s.sn.toLowerCase().includes(searchTerm));
+
+    _openDropdown(resultsDiv, input);
+    if (filtered.length === 0) {
+      resultsDiv.innerHTML =
+        '<div class="search-item text-muted">לא נמצא צ\' כזה במלאי</div>';
+    } else {
+      resultsDiv.innerHTML = filtered
+        .map((s) => {
+          const safeSn = JSON.stringify(s.sn).replace(/"/g, "&quot;");
+          return `
+            <div class="search-item" onclick="selectSn(this, ${safeSn}, '${s.rowId}')">
+                ${s.sn}
+            </div>
+          `;
+        })
+        .join("");
+    }
+  }
+
+  // וודא שגם פונקציית הבחירה של מספר צ' סוגרת את הרשימה:
+  function selectSn(element, sn, rowId) {
+    const wrapper = _getWrapperFromSearchItem(element);
+    const input = wrapper.querySelector(".stat-sn-input");
+    input.value = sn;
+    input.dataset.rowId = rowId;
+
+    closeAllLists();
+    toggleClearBtn(input);
+    hideError(input);
+
+    // מעבר לשורת מוצר הבאה אם קיימת, אחרת לצוות יעד
+    const currentRow = input.closest(".item-row");
+    const allRows = [...document.querySelectorAll("#status-items-container .item-row")];
+    const nextRow = allRows[allRows.indexOf(currentRow) + 1];
+    if (nextRow) {
+      const nextProdInput = nextRow.querySelector("input[type='text']");
+      if (nextProdInput) nextProdInput.focus();
+    } else {
+      document.getElementById("status-dest-team")?.focus();
+    }
+  }
+
+  function clearSnInput(btn) {
+    const input = btn.parentElement.querySelector(".stat-sn-input");
+    input.value = "";
+    delete input.dataset.rowId;
+    btn.style.display = "none";
+    input.focus();
+  }
+
+  // -------- אתחול עמוד סטטוס --------
+  function initStatusPage() {
+    UI_createSkeleton("status-init-skeleton", [
+      { type: "pill", size: "large", style: "height: 80px; border-radius: 12px" },
+    ]);
+    UI_createSkeleton("status-skeleton", [
+      { type: "pill", size: "large", style: "height: 100px; border-radius: 15px" },
+    ]);
+
+    renderNavbar("status-nav-anchor", {
+      title: "שינוי סטטוס",
+      backPage: "home-page",
+      resetFn: "confirmAndExecuteReset(resetStatusForm)",
+    });
+
+    document.getElementById("status-team-anchor").innerHTML = UI_createSearchInput({
+      id: "status-team",
+      label: "1. בחר צוות מקור",
+      placeholder: "חפש צוות",
+      listKey: "teams",
+      errorMsg: "נא לבחור צוות מקור כדי לראות מלאי",
+      customClear: "clearStatusTeam",
+    });
+    document.getElementById("status-loc-filter-anchor").innerHTML = UI_createSearchInput({
+      id: "status-loc-filter",
+      label: "פילטור לפי מיקום",
+      placeholder: "כל המיקומים",
+      listKey: "status_locations",
+      required: false,
+      customClear: "clearStatusLocFilter",
+    });
+    document.getElementById("status-action-global-anchor").innerHTML = UI_createSearchInput({
+      id: "status-action-global",
+      label: "2. בחר סוג עדכון",
+      placeholder: "חפש סטטוס",
+      listKey: "actions",
+      errorMsg: "נא לבחור את סוג הסטטוס מהרשימה",
+    });
+    document.getElementById("status-dest-team-anchor").innerHTML = UI_createSearchInput({
+      id: "status-dest-team",
+      label: "צוות יעד",
+      placeholder: "חפש צוות",
+      listKey: "teams",
+      errorMsg: "נא לבחור צוות יעד מהרשימה",
+    });
+    document.getElementById("status-location-anchor").innerHTML = UI_createSearchInput({
+      id: "status-location",
+      label: "מיקום חדש",
+      placeholder: "חפש מיקום",
+      listKey: "locations",
+      errorMsg: "נא לבחור מיקום מהרשימה",
+    });
+    UI_renderSigneeRow({
+      nameAnchorId: "status-signee-name-anchor",
+      idAnchorId: "status-signee-id-anchor",
+      nameInputId: "status-signee-name",
+      idInputId: "status-signee-id",
+      nameLabel: "שם המקבל",
+      namePlaceholder: "שם מלא",
+      submitAnchorId: "status-submit-anchor",
+      submitLabel: "בצע עדכון סטטוס",
+      submitClass: "btn-primary",
+      submitId: "submit-status-btn",
+    });
+
+    document.getElementById("status-form").onsubmit = (e) => { e.preventDefault(); handleStatusSubmit(); };
+
+    _whenDataReady(() => {
+      document.getElementById("status-init-skeleton").style.display = "none";
+      document.getElementById("status-form").style.display = "block";
+    });
+
+  }
+</script>

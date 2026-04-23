@@ -1,0 +1,49 @@
+<script>
+  /**
+   * UI_renderSigneeRow — מזריק שני שדות חתימה (שם + מספר אישי) לעוגנים שלהם
+   *
+   * @param {object} options
+   *   nameAnchorId    {string} - id של הדיב שיקבל את שדה השם
+   *   idAnchorId      {string} - id של הדיב שיקבל את שדה המספר האישי
+   *   nameInputId     {string} - id שיינתן ל-input השם
+   *   idInputId       {string} - id שיינתן ל-input המספר האישי
+   *   nameLabel       {string} - תווית לשדה השם (ברירת מחדל: "שם המקבל")
+   *   namePlaceholder {string} - placeholder לשדה השם (ברירת מחדל: "חפש או הזן שם")
+   */
+  function UI_renderSigneeRow({
+    nameAnchorId,
+    idAnchorId,
+    nameInputId,
+    idInputId,
+    nameLabel = "שם המקבל",
+    namePlaceholder = "חפש או הזן שם",
+    submitAnchorId,
+    submitLabel,
+    submitClass = "btn-primary",
+    submitId,
+  }) {
+    document.getElementById(nameAnchorId).innerHTML = UI_createSearchInput({
+      id: nameInputId,
+      label: nameLabel,
+      placeholder: namePlaceholder,
+      listKey: "signees",
+      requireSelection: false,
+      errorMsg: "נא להזין או לבחור שם מהרשימה",
+    });
+    document.getElementById(idAnchorId).innerHTML = UI_createSearchInput({
+      id: idInputId,
+      label: "מספר אישי",
+      placeholder: "הזן מספר",
+      listKey: "",
+      errorMsg: "נא להזין מספר אישי תקין",
+      extraAttributes: 'inputmode="numeric" pattern="[0-9]*"',
+    });
+
+    if (submitAnchorId && submitLabel) {
+      document.getElementById(submitAnchorId).innerHTML = `
+        <button type="submit" class="btn ${submitClass} w-100 p-3 shadow"${submitId ? ` id="${submitId}"` : ""} style="font-weight: bold; border-radius: 12px; max-width: 500px">
+          ${submitLabel}
+        </button>`;
+    }
+  }
+</script>

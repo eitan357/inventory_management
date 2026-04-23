@@ -1,0 +1,124 @@
+<!-- מודאל מוצרים קשורים -->
+<div id="related-modal" class="custom-modal-overlay">
+  <div class="custom-modal" style="max-width: 400px">
+    <h4 id="related-title">המלצת ציוד נלווה</h4>
+    <p id="related-message" style="font-size: 14px"></p>
+    <div
+      id="related-items-list"
+      style="
+        text-align: right;
+        max-height: 200px;
+        overflow-y: auto;
+        margin: 15px 0;
+        border: 1px solid #eee;
+        padding: 10px;
+        border-radius: 8px;
+      "
+    ></div>
+    <div class="d-flex justify-content-around mt-4">
+      <button class="btn btn-primary" id="related-add-btn">הוסף נבחרים</button>
+      <button class="btn btn-outline-secondary" id="related-skip-btn">
+        אל תוסיף
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * UI_showRelatedModal — מציג את מודאל הציוד הנלווה
+   *
+   * @param {object} options
+   *   message {string}         - הטקסט שמוצג מעל הרשימה
+   *   items   {Array}          - [{ id, label }] — פריטים להצגה כ-checkbox
+   *   onAdd   {Function}       - callback(checkedIds) — נקרא עם מערך ה-id שנבחרו
+   */
+  function showRelatedModal(selectedProd) {
+    if (document.activeElement) document.activeElement.blur();
+
+    const isStatusPage = document.getElementById("status-page")?.classList.contains("active") ?? false;
+    const selectedTags = selectedProd.related.split(",").map((s) => s.trim()).filter((s) => s !== "");
+
+    let relatedItems, message, onAdd;
+
+    if (isStatusPage) {
+      const existingIds = Array.from(document.querySelectorAll("#status-items-container .prod-id")).map((i) => i.value);
+      const seenRelatedIds = new Set();
+      relatedItems = currentTeamInventory.products.filter((p) => {
+        if (p.id === selectedProd.id || existingIds.includes(p.id)) return false;
+        if (seenRelatedIds.has(p.id)) return false;
+        const cat = appData.catalog.find((c) => c.id === p.id);
+        if (!cat || !cat.related) return false;
+        const matches = cat.related.split(",").map((s) => s.trim()).some((tag) => selectedTags.includes(tag));
+        if (matches) seenRelatedIds.add(p.id);
+        return matches;
+      });
+      message = `לצוות זה יש במלאי ציוד נלווה ל"${getProductDisplayName(selectedProd)}":`;
+      onAdd = (checkedIds) => {
+        checkedIds.forEach((id) => {
+          const prod = currentTeamInventory.products.find((p) => p.id === id);
+          if (prod) {
+            addStatusItemRow();
+            const lastRow = document.querySelector("#status-items-container .item-row:last-child");
+            selectStatusProduct(getStatusProdNameInput(lastRow), prod.id, prod.name, prod.type);
+          }
+        });
+      };
+    } else {
+      const existingIds = Array.from(document.querySelectorAll(".prod-id")).map((i) => i.value);
+      relatedItems = appData.catalog.filter((item) => {
+        if (item.id === selectedProd.id || !item.related || existingIds.includes(item.id)) return false;
+        return item.related.split(",").map((s) => s.trim()).some((tag) => selectedTags.includes(tag));
+      });
+      message = `המוצר "${getProductDisplayName(selectedProd)}" נמסר בדרך כלל עם:`;
+      onAdd = (checkedIds) => {
+        checkedIds.forEach((id) => {
+          const product = appData.catalog.find((p) => p.id === id);
+          if (product) addPopulatedRow(product);
+        });
+      };
+    }
+
+    if (relatedItems.length === 0) return;
+
+    UI_showRelatedModal({
+      message,
+      items: relatedItems.map((item) => {
+        const cat = isStatusPage ? appData.catalog.find((c) => c.id === item.id) : item;
+        const label = cat ? getProductDisplayName(cat) : (item.name || item.id);
+        return { id: item.id, label };
+      }),
+      onAdd,
+    });
+  }
+
+  function UI_showRelatedModal({ message, items, onAdd }) {
+    document.getElementById("related-message").innerText = message;
+
+    document.getElementById("related-items-list").innerHTML = items
+      .map(
+        (item) => `
+        <div class="form-check mb-2">
+          <input class="form-check-input related-cb" type="checkbox" value="${item.id}" id="rel-cb-${item.id}" checked>
+          <label class="form-check-label" for="rel-cb-${item.id}" style="cursor:pointer; display:block; width:100%;">
+            ${item.label}
+          </label>
+        </div>`
+      )
+      .join("");
+
+    openModal("related-modal");
+
+    document.getElementById("related-skip-btn").onclick = function () {
+      closeModal("related-modal");
+    };
+
+    document.getElementById("related-add-btn").onclick = function () {
+      const checkedIds = Array.from(
+        document.querySelectorAll(".related-cb:checked")
+      ).map((cb) => cb.value);
+      onAdd(checkedIds);
+      closeModal("related-modal");
+    };
+  }
+</script>

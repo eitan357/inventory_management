@@ -1,0 +1,65 @@
+<script>
+  function getStatusHTML() {
+    return `<div id="status-page" class="page active">
+  <div id="status-nav-anchor"></div>
+
+  <div id="status-init-skeleton"></div>
+
+  <form id="status-form" style="display: none" novalidate>
+
+    <!-- חלק א: בחירת מקור -->
+    <div class="card p-3 mb-4 shadow-sm border-primary">
+      <div id="status-team-anchor"></div> <!-- עוגן צוות מקור -->
+    </div>
+
+    <!-- פילטור לפי מיקום (אופציונלי) -->
+    <div id="status-loc-filter-card" class="card p-3 mb-4 shadow-sm" style="display: none; border-right: 5px solid #6c757d">
+      <div id="status-loc-filter-anchor"></div> <!-- עוגן פילטר מיקום -->
+    </div>
+
+    <div id="status-skeleton" style="display: none" class="mt-3"></div>
+
+    <div id="status-empty-state" style="display: none" class="card p-4 mb-4 shadow-sm text-center border-0">
+      <div style="font-size: 2.5rem; margin-bottom: 10px;">📭</div>
+      <div class="fw-bold mb-1" style="color: #2d3436;">אין מוצרים חתומים על הצוות</div>
+      <div class="text-muted small">לצוות זה אין פריטים רשומים במלאי כרגע</div>
+    </div>
+
+    <div id="status-inventory-section" style="display: none">
+
+      <!-- בחירת סוג עדכון (סטטוס) -->
+      <div class="row g-2 mb-3">
+        <div class="col-12">
+           <div id="status-action-global-anchor"></div> <!-- עוגן סטטוס גלובלי -->
+        </div>
+      </div>
+
+      <label class="x-small mb-2">3. בחר מוצרים מהמלאי</label>
+      <div id="status-items-container"></div>
+
+      <div class="add-item-container">
+        <div class="field-error-msg mb-2 items-count-error">נא לבחור לפחות מוצר אחד</div>
+        <button type="button" class="btn btn-outline-primary btn-sm btn-add-item" onclick="addStatusItemRow()">
+          + הוסף מוצר
+        </button> 
+      </div>
+
+      <hr class="my-4" />
+
+      <!-- חלק ג: יעד וחתימה -->
+      <div class="card p-3 shadow-sm bg-white">
+        <label class="x-small mt-2 mb-3">4. פרטי יעד וחתימה מעודכנים</label>
+        <div class="row g-2 mb-3">
+          <div class="col-6" id="status-dest-team-anchor"></div>
+          <div class="col-6" id="status-location-anchor"></div>
+          <div class="col-6" id="status-signee-name-anchor"></div>
+          <div class="col-6" id="status-signee-id-anchor"></div>
+        </div>
+      </div>
+
+      <div class="form-submit-container" id="status-submit-anchor"></div>
+    </div>
+  </form>
+</div>`;
+  }
+</script>

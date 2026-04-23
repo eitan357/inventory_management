@@ -1,0 +1,212 @@
+<script>
+  /**
+   * UI_fieldError — מחזיר HTML string של הודעת שגיאה לשדה
+   *
+   * @param {string|null} id         - id לאלמנט (null = ללא id)
+   * @param {string}      msg        - טקסט השגיאה
+   * @param {string}      extraClass - מחלקות CSS נוספות (אופציונלי)
+   * @returns {string}
+   */
+  function UI_fieldError(id, msg, extraClass) {
+    const idAttr = id ? ` id="${id}"` : "";
+    const extra = extraClass ? ` ${extraClass}` : "";
+    return `<div class="field-error-msg${extra}"${idAttr}>${msg}</div>`;
+  }
+
+  function hideError(input) {
+    input.classList.remove("is-invalid-field");
+    const container =
+      input.closest(".search-field-container") ||
+      input.closest(".col-12") ||
+      input.closest(".col-6") ||
+      input.closest(".item-row");
+    if (container) {
+      const errors = container.querySelectorAll(".field-error-msg");
+      errors.forEach((err) => (err.style.display = "none"));
+    }
+  }
+
+  function setFieldError(inputId) {
+    const inputEl = document.getElementById(inputId);
+    if (!inputEl) return;
+
+    inputEl.classList.add("is-invalid-field");
+    const container = inputEl.closest(".search-field-container");
+    if (container) {
+      const errorDiv = container.querySelector(".field-error-msg");
+      if (errorDiv) errorDiv.style.display = "block";
+    }
+  }
+
+  function clearAllErrors() {
+    document
+      .querySelectorAll(".field-error-msg")
+      .forEach((d) => (d.style.display = "none"));
+    document
+      .querySelectorAll(".form-control")
+      .forEach((i) => i.classList.remove("is-invalid-field"));
+  }
+
+  function validateContainerFields(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return true;
+
+    let isAllValid = true;
+    let firstErrorEl = null;
+
+    const requiredFields = container.querySelectorAll(
+      '.search-field-container[data-required="true"]',
+    );
+
+    requiredFields.forEach((wrapper) => {
+      if (wrapper.closest(".hidden-field")) return;
+
+      // שורת מוצר ריקה לחלוטין — מתעלמים ממנה
+      const itemRow = wrapper.closest(".item-row");
+      if (itemRow) {
+        const prodNameInput = itemRow.querySelector('.form-control[oninput*="handleSearchInput"]');
+        if (prodNameInput && !prodNameInput.value.trim()) return;
+      }
+
+      const input = wrapper.querySelector(".form-control");
+      const hiddenId = wrapper.querySelector(".prod-id");
+      const listKey =
+        input.getAttribute("oninput")?.includes("handleSearchInput") ||
+        input.getAttribute("oninput")?.includes("handleStatusSearch");
+
+      let isFieldInvalid = false;
+      let customErrorMsg = "";
+
+      if (listKey) {
+        const requiresSelection = wrapper.dataset.requireSelection !== "false";
+        const hasSelection = hiddenId
+          ? hiddenId.value
+          : input.dataset.selectedId;
+        if (!input.value.trim() || (requiresSelection && !hasSelection)) {
+          isFieldInvalid = true;
+        }
+      } else if (input.type === "number") {
+        const val = parseInt(input.value);
+        const min = parseInt(input.min) || 1;
+        const max = parseInt(input.max);
+
+        if (isNaN(val) || val < min) {
+          isFieldInvalid = true;
+          customErrorMsg = `מינימום להזנה: ${min}`;
+        } else if (!isNaN(max) && val > max) {
+          isFieldInvalid = true;
+          customErrorMsg = `מקסימום להזנה: ${max}`;
+        }
+      } else {
+        if (!input.value.trim()) {
+          isFieldInvalid = true;
+        }
+      }
+
+      if (isFieldInvalid) {
+        if (customErrorMsg) {
+          const errorDiv = document.getElementById(`error-${input.id}`);
+          if (errorDiv) errorDiv.innerText = customErrorMsg;
+        }
+        setFieldError(input.id);
+        isAllValid = false;
+        if (!firstErrorEl) firstErrorEl = input;
+      }
+    });
+
+    if (firstErrorEl) {
+      firstErrorEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    return isAllValid;
+  }
+
+  function _validateNoDuplicates(containerId, { visibilitySelector, getValue, getErrorInput, errorMsgSelector }) {
+    const container = document.getElementById(containerId);
+    if (!container) return true;
+
+    const rows = [...container.querySelectorAll(".item-row")];
+    const counts = {};
+
+    rows.forEach((row) => {
+      const visEl = row.querySelector(visibilitySelector);
+      if (!visEl || visEl.classList.contains("hidden-field")) return;
+      if (!row.querySelector(".prod-id")?.value) return;
+      const val = getValue(row);
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+
+    let isValid = true;
+    let firstErrorEl = null;
+
+    rows.forEach((row) => {
+      const visEl = row.querySelector(visibilitySelector);
+      if (!visEl || visEl.classList.contains("hidden-field")) return;
+      if (!row.querySelector(".prod-id")?.value) return;
+      const val = getValue(row);
+      if (!val || counts[val] <= 1) return;
+
+      const errorInput = getErrorInput(row);
+      if (errorInput) errorInput.classList.add("is-invalid-field");
+      const errMsg = row.querySelector(errorMsgSelector);
+      if (errMsg) errMsg.style.display = "block";
+
+      isValid = false;
+      if (!firstErrorEl) firstErrorEl = errorInput;
+    });
+
+    if (firstErrorEl) firstErrorEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    return isValid;
+  }
+
+  function validateNoDuplicateProducts(containerId) {
+    return _validateNoDuplicates(containerId, {
+      visibilitySelector: ".qty-container, .stat-qty-container",
+      getValue:       (row) => row.querySelector(".prod-id")?.value,
+      getErrorInput:  (row) => row.querySelector(".prod-id")?.closest(".searchable-input-wrapper")?.querySelector(".form-control"),
+      errorMsgSelector: ".prod-duplicate-msg",
+    });
+  }
+
+  function validateNoDuplicateSns(containerId) {
+    return _validateNoDuplicates(containerId, {
+      visibilitySelector: ".sn-container, .stat-sn-container",
+      getValue:       (row) => row.querySelector(".prod-sn, .stat-sn-input")?.value.trim(),
+      getErrorInput:  (row) => row.querySelector(".prod-sn, .stat-sn-input"),
+      errorMsgSelector: ".sn-duplicate-msg",
+    });
+  }
+
+  function clearAllFieldsInContainer(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.querySelectorAll("input, textarea, select").forEach((el) => {
+      if (
+        el.classList.contains("prod-qty") ||
+        el.classList.contains("stat-qty-input")
+      ) {
+        el.value = "1";
+      } else {
+        el.value = "";
+      }
+
+      if (el.dataset) {
+        delete el.dataset.selectedId;
+        delete el.dataset.rowId;
+      }
+
+      el.classList.remove("is-invalid-field");
+    });
+
+    container.querySelectorAll(".clear-input-btn").forEach((btn) => {
+      btn.style.display = "none";
+    });
+
+    container.querySelectorAll(".field-error-msg").forEach((msg) => {
+      msg.style.display = "none";
+    });
+
+    closeAllLists();
+  }
+</script>

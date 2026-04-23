@@ -1,0 +1,53 @@
+<!-- שכבת טעינה - ספינר חוסם מסך -->
+<div
+  id="loading-overlay"
+  class="custom-modal-overlay"
+  style="align-items: center; background: rgba(0, 0, 0, 0.4) !important"
+>
+  <div
+    class="custom-modal"
+    style="
+      max-width: 250px;
+      padding: 30px;
+      align-items: center;
+      border: none;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    "
+  >
+    <div
+      class="spinner-border text-primary mb-3"
+      role="status"
+      style="width: 2.5rem; height: 2.5rem; border-width: 0.2rem"
+    >
+      <span class="visually-hidden">טוען...</span>
+    </div>
+    <h6
+      id="loading-text"
+      class="text-primary mb-0"
+      style="font-weight: bold; letter-spacing: 0.5px"
+    >
+      מעבד נתונים...
+    </h6>
+    <div class="mt-2 text-muted" style="font-size: 11px">אנא המתן רגע</div>
+  </div>
+</div>
+
+<script>
+  /** showLoading — מציג שכבת טעינה עם טקסט מותאם */
+  function showLoading(text) {
+    const overlay = document.getElementById("loading-overlay");
+    const textEl = document.getElementById("loading-text");
+    if (textEl) textEl.innerText = text;
+    overlay.classList.add('modal-visible');
+    document.body.classList.add('modal-open');
+  }
+
+  /** hideLoading — מסתיר את שכבת הטעינה */
+  function hideLoading() {
+    const overlay = document.getElementById("loading-overlay");
+    if (!overlay) return;
+    overlay.classList.remove('modal-visible');
+    const openModals = document.querySelectorAll('.custom-modal-overlay.modal-visible');
+    if (openModals.length === 0) document.body.classList.remove('modal-open');
+  }
+</script>

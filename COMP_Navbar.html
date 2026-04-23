@@ -1,0 +1,24 @@
+<!-- START OF FILE COMP_Navbar.html -->
+<script>
+  /**
+   * פונקציה גלובלית לרינדור שורת הניווט בכל העמודים
+   * @param {string} containerId - ה-ID של הדיב אליו נזריק את הניווט
+   * @param {object} options - הגדרות: title, backPage, resetFn
+   */
+  function renderNavbar(containerId, options) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="mb-4">
+        <div class="mb-2">
+          ${UI_createBackButton(options.backPage || 'home-page')}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <h4 class="mb-0 flex-grow-1">${options.title}</h4>
+          ${UI_createClearButton(options.resetFn)}
+        </div>
+      </div>
+    `;
+  }
+</script>
