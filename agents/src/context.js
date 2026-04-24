@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEPENDENCY_MAP } = require('./agentDependencies');
+
 class ProjectContext {
   constructor(requirements, plan, outputDir) {
     this.requirements = requirements;
@@ -14,7 +16,7 @@ class ProjectContext {
     this.allFilesCreated.push(...files);
   }
 
-  buildContextMessage(currentAgentName) {
+  buildScopedContext(agentName) {
     const lines = [
       '# Project Requirements',
       this.requirements,
@@ -27,12 +29,18 @@ class ProjectContext {
       '',
     ];
 
-    const previousOutputs = Object.entries(this.agentOutputs);
-    if (previousOutputs.length > 0) {
-      lines.push('# Work Done By Previous Agents', '');
-      for (const [agentName, output] of previousOutputs) {
+    const deps = DEPENDENCY_MAP[agentName] || [];
+
+    if (deps.length > 0) {
+      lines.push('# Context From Dependencies', '');
+      for (const depName of deps) {
+        const output = this.agentOutputs[depName];
+        if (!output) {
+          lines.push(`## ${depName} Agent`, '(not run — optional agent skipped)', '');
+          continue;
+        }
         lines.push(
-          `## ${agentName} Agent`,
+          `## ${depName} Agent Output`,
           output.summary,
           '',
           `Files created: ${output.files.join(', ')}`,
@@ -42,14 +50,19 @@ class ProjectContext {
     }
 
     lines.push(
-      `# Your Task — ${currentAgentName} Agent`,
-      `You are the ${currentAgentName} agent. Using the context above, complete your specific role.`,
+      `# Your Task — ${agentName} Agent`,
+      `You are the ${agentName} agent. Using the context above, complete your specific role.`,
       'Write ALL output files using the write_file tool.',
       'Paths are relative to the output directory — do NOT include the output directory path itself.',
       '',
     );
 
     return lines.join('\n');
+  }
+
+  // Alias kept for backward compatibility
+  buildContextMessage(agentName) {
+    return this.buildScopedContext(agentName);
   }
 }
 

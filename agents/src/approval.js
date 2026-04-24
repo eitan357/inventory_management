@@ -43,4 +43,32 @@ async function showAgentOutput(agentName, summary, filesCreated) {
   return answer === 'y' || answer === 'yes' || answer === '';
 }
 
-module.exports = { approveStep, showAgentOutput, ask };
+async function approveLayer(layerName, layerResults) {
+  const agentNames = Object.keys(layerResults);
+  const totalFiles = agentNames.reduce(
+    (sum, name) => sum + (layerResults[name]?.filesCreated?.length || 0), 0
+  );
+
+  console.log('\n' + chalk.cyan('═'.repeat(70)));
+  console.log(chalk.bold.blue(`🏁  Layer Complete: ${layerName}`));
+  console.log(chalk.white(`   Agents: ${agentNames.join(', ')}`));
+  console.log(chalk.white(`   Files created this layer: ${totalFiles}`));
+
+  for (const [agentName, result] of Object.entries(layerResults)) {
+    if (!result || result.error) {
+      console.log(chalk.red(`\n  ❌ ${agentName}: FAILED — ${result?.error || 'unknown error'}`));
+      continue;
+    }
+    const preview = result.summary.slice(0, 300);
+    console.log(chalk.gray(`\n  [${agentName}] ${preview}${result.summary.length > 300 ? '...' : ''}`));
+    if (result.filesCreated && result.filesCreated.length > 0) {
+      result.filesCreated.forEach(f => console.log(chalk.green(`    ✓ ${f}`)));
+    }
+  }
+
+  console.log(chalk.cyan('═'.repeat(70)));
+  const answer = await ask(chalk.bold.green('▶  להמשיך לשכבה הבאה? (y/n): '));
+  return answer === 'y' || answer === 'yes' || answer === '';
+}
+
+module.exports = { approveStep, showAgentOutput, approveLayer, ask };
