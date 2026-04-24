@@ -24,6 +24,7 @@ const { createTesterAgent } = require('./agents/tester');
 const { createReviewerAgent } = require('./agents/reviewer');
 const { createDevOpsAgent } = require('./agents/devops');
 const { createDocumentationAgent } = require('./agents/documentation');
+const { createSummarizerAgent } = require('./agents/summarizer');
 
 const AGENT_REGISTRY = {
   requirementsAnalyst: createRequirementsAnalystAgent,
@@ -40,6 +41,7 @@ const AGENT_REGISTRY = {
   reviewer:            createReviewerAgent,
   devops:              createDevOpsAgent,
   documentation:       createDocumentationAgent,
+  summarizer:          createSummarizerAgent,
 };
 
 // Layer definitions — parallel: true means agents in that layer run concurrently
@@ -72,14 +74,15 @@ const LAYER_DEFINITIONS = [
     id: 5,
     name: 'Operations',
     parallel: true,
-    agents: ['devops', 'documentation'],
+    agents: ['devops', 'documentation', 'summarizer'],
     skipApprovalGate: true,
   },
 ];
 
 const PM_PLAN_SCHEMA = `{
   "projectName": "string",
-  "description": "string (2-3 sentences about what this app does)",
+  "description": "string (2-3 sentences about what this app does — write in the same language as the requirements)",
+  "language": "he OR en (detected from the requirements text)",
   "techStack": {
     "backend": "e.g. Node.js + Express + MongoDB",
     "frontend": "e.g. React Native + Expo OR React + Next.js OR none",
@@ -97,7 +100,7 @@ const PM_PLAN_SCHEMA = `{
       "integrationReason": "why integration agent is or isn't needed"
     },
     "layer4": { "agents": ["tester", "security", "reviewer"] },
-    "layer5": { "agents": ["devops", "documentation"] }
+    "layer5": { "agents": ["devops", "documentation", "summarizer"] }
   },
   "estimatedFiles": 52
 }`;
@@ -121,6 +124,7 @@ Available agents by layer:
 - Layer 5 (Operations, always included): devops, documentation
 
 Rules:
+- Detect the language of the requirements text and set "language": "he" for Hebrew, "en" for English or anything else
 - authAgent is always included (every app needs auth patterns)
 - frontendArchitect and frontendDev are OMITTED for API-only or backend-only projects
 - integrationAgent is OPTIONAL — only include if requirements explicitly mention external services
@@ -180,6 +184,7 @@ function formatPlan(plan) {
   const lines = [
     `📦  Project : ${plan.projectName}`,
     `📝  ${plan.description}`,
+    `🌐  Language : ${plan.language === 'he' ? 'Hebrew (עברית)' : 'English'}`,
     '',
     '🛠   Tech Stack:',
     `    Backend   : ${plan.techStack.backend}`,

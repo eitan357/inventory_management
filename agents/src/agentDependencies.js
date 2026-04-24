@@ -16,6 +16,7 @@ const DEPENDENCY_MAP = {
   reviewer:            ['backendDev', 'frontendDev', 'authAgent', 'integrationAgent'],
   devops:              ['systemArchitect', 'backendDev', 'frontendDev'],
   documentation:       ['requirementsAnalyst', 'apiDesigner', 'backendDev', 'frontendDev', 'devops'],
+  summarizer:          ['requirementsAnalyst', 'systemArchitect', 'backendDev', 'frontendDev', 'authAgent', 'tester', 'devops'],
 };
 
 module.exports = { DEPENDENCY_MAP };

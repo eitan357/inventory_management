@@ -17,12 +17,20 @@ class ProjectContext {
   }
 
   buildScopedContext(agentName) {
+    const lang = this.plan.language || 'en';
+    const langInstruction = lang === 'he'
+      ? 'Write all documentation files, comments, README files, and user-facing text in Hebrew (עברית). Code identifiers, variable names, function names, and technical terms remain in English.'
+      : 'Write all documentation and comments in English.';
+
     const lines = [
       '# Project Requirements',
       this.requirements,
       '',
       '# Tech Stack Decisions',
       JSON.stringify(this.plan.techStack, null, 2),
+      '',
+      '# Output Language',
+      langInstruction,
       '',
       '# Output Directory',
       this.outputDir,
