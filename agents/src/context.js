@@ -32,10 +32,25 @@ class ProjectContext {
       '# Output Language',
       langInstruction,
       '',
+    ];
+
+    if (this.plan.upgradeMode) {
+      lines.push(
+        '# Mode: UPGRADE EXISTING PROJECT',
+        'You are UPGRADING an existing codebase — not building from scratch.',
+        '- Use read_file to read existing files BEFORE modifying them',
+        '- Preserve all existing functionality — only add or change what is in docs/upgrade-plan.md',
+        '- When overwriting a file: read it first, keep all existing logic, add only the new parts',
+        '- If a file should NOT change (listed in upgrade-plan.md "What NOT to Touch"), do not write it',
+        '',
+      );
+    }
+
+    lines.push(
       '# Output Directory',
       this.outputDir,
       '',
-    ];
+    );
 
     const deps = DEPENDENCY_MAP[agentName] || [];
 

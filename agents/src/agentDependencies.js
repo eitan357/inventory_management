@@ -4,19 +4,26 @@ const DEPENDENCY_MAP = {
   pmAgent:             [],
   requirementsAnalyst: [],
   systemArchitect:     ['requirementsAnalyst'],
-  dataArchitect:       ['requirementsAnalyst', 'systemArchitect'],
-  apiDesigner:         ['requirementsAnalyst', 'systemArchitect'],
-  frontendArchitect:   ['requirementsAnalyst', 'systemArchitect'],
-  backendDev:          ['systemArchitect', 'dataArchitect', 'apiDesigner'],
-  frontendDev:         ['systemArchitect', 'frontendArchitect', 'apiDesigner'],
-  authAgent:           ['systemArchitect', 'apiDesigner', 'dataArchitect'],
-  integrationAgent:    ['systemArchitect', 'apiDesigner'],
+  // Upgrade-mode analysis agents
+  repoAnalyzer:        [],
+  gapAnalyzer:         ['repoAnalyzer'],
+  // Design layer — depends on either new-project or upgrade analysis
+  dataArchitect:       ['requirementsAnalyst', 'systemArchitect', 'repoAnalyzer', 'gapAnalyzer'],
+  apiDesigner:         ['requirementsAnalyst', 'systemArchitect', 'repoAnalyzer', 'gapAnalyzer'],
+  frontendArchitect:   ['requirementsAnalyst', 'systemArchitect', 'repoAnalyzer', 'gapAnalyzer'],
+  // Implementation layer
+  backendDev:          ['systemArchitect', 'dataArchitect', 'apiDesigner', 'gapAnalyzer'],
+  frontendDev:         ['systemArchitect', 'frontendArchitect', 'apiDesigner', 'gapAnalyzer'],
+  authAgent:           ['systemArchitect', 'apiDesigner', 'dataArchitect', 'gapAnalyzer'],
+  integrationAgent:    ['systemArchitect', 'apiDesigner', 'gapAnalyzer'],
+  // Quality layer
   tester:              ['backendDev', 'frontendDev', 'authAgent', 'dataArchitect'],
   security:            ['backendDev', 'authAgent', 'apiDesigner'],
   reviewer:            ['backendDev', 'frontendDev', 'authAgent', 'integrationAgent'],
-  devops:              ['systemArchitect', 'backendDev', 'frontendDev'],
-  documentation:       ['requirementsAnalyst', 'apiDesigner', 'backendDev', 'frontendDev', 'devops'],
-  summarizer:          ['requirementsAnalyst', 'systemArchitect', 'backendDev', 'frontendDev', 'authAgent', 'tester', 'devops'],
+  // Operations layer
+  devops:              ['systemArchitect', 'backendDev', 'frontendDev', 'repoAnalyzer'],
+  documentation:       ['requirementsAnalyst', 'apiDesigner', 'backendDev', 'frontendDev', 'devops', 'gapAnalyzer'],
+  summarizer:          ['requirementsAnalyst', 'systemArchitect', 'backendDev', 'frontendDev', 'authAgent', 'tester', 'devops', 'repoAnalyzer', 'gapAnalyzer'],
 };
 
 module.exports = { DEPENDENCY_MAP };
