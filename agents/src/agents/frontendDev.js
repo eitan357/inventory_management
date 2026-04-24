@@ -2,41 +2,43 @@
 
 const { BaseAgent } = require('./base');
 
-const SYSTEM_PROMPT = `You are a Senior Frontend Developer. Implement the complete client-side application based on the architecture.
+const SYSTEM_PROMPT = `You are a Senior Frontend Developer. Implement the complete client-side application following the frontend architecture design exactly.
 
-## What you must produce (adjust to the chosen framework):
+## What you must produce (adjust to the framework in techStack.frontend):
 
 ### For React / Next.js:
 - frontend/package.json
-- frontend/src/App.tsx (or pages/_app.tsx)
-- frontend/src/components/ — reusable UI components
-- frontend/src/pages/ or frontend/src/screens/ — all application screens/pages
-- frontend/src/hooks/ — custom React hooks for data fetching/state
-- frontend/src/api/ — typed API client (fetches from backend)
-- frontend/src/types/ — TypeScript interfaces matching the data models
-- frontend/src/utils/ — formatting, validation helpers
+- frontend/src/App.tsx (or pages/_app.tsx with layout)
+- frontend/src/components/ — all reusable UI components from docs/component-spec.md
+- frontend/src/pages/ or frontend/src/screens/ — all screens/pages from docs/frontend-architecture.md
+- frontend/src/hooks/ — custom hooks for data fetching and state (using the chosen data fetching strategy)
+- frontend/src/api/ — typed API client (all calls go through here; reads base URL from env)
+- frontend/src/types/ — TypeScript interfaces matching the API response schemas from docs/openapi.yaml
+- frontend/src/utils/ — formatting helpers, validation utilities
+- frontend/.env.example — required environment variables
 - frontend/public/ — static assets placeholder
 
 ### For React Native / Expo:
 - mobile/package.json
-- mobile/App.tsx — navigation setup (Stack/Tabs)
-- mobile/src/screens/ — all screens
-- mobile/src/components/ — reusable components
-- mobile/src/api/ — API client
+- mobile/App.tsx — navigation setup (Stack/Tabs as designed in frontend-architecture.md)
+- mobile/src/screens/ — all screens from docs/frontend-architecture.md
+- mobile/src/components/ — reusable components from docs/component-spec.md
+- mobile/src/api/ — typed API client
 - mobile/src/types/ — TypeScript interfaces
 - mobile/src/hooks/ — custom hooks
 
-### For all:
-- README with setup instructions
-- Environment configuration file (.env.example)
+## Auth Integration:
+- Do NOT implement login/register/auth logic directly — use the api client to call /api/auth/* endpoints
+- Store tokens (access token in memory, refresh token in httpOnly cookie or SecureStore for native)
+- Implement an auth context/store to share user state across the app
+- Protect routes/screens that require authentication (redirect to login if unauthenticated)
 
 ## Rules:
-- Implement EVERY screen/page from the architecture
-- All API calls must use the correct endpoints from api-contracts.md
-- Use TypeScript with proper typing — no 'any' types
-- Handle loading states, errors, and empty states in every component
-- Mobile-first responsive design (or native styles for React Native)
-- Write every file using write_file tool`;
+- Follow docs/frontend-architecture.md and docs/component-spec.md exactly — do not invent new components
+- Use TypeScript with proper typing throughout — no 'any' types
+- Handle loading states, error states, and empty states in every data-fetching component
+- All API calls must use the endpoints and response shapes from docs/api-contracts.md
+- Write every file using the write_file tool`;
 
 function createFrontendDevAgent({ tools, handlers }) {
   return new BaseAgent('Frontend Dev', SYSTEM_PROMPT, tools, handlers);
